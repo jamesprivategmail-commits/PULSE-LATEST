@@ -158,14 +158,14 @@ function publicUser(user: any) {
   const { passwordHash, ...safe } = user;
   return safe;
 }
-function verificationUrl(token: string) {
-  const base = process.env.PUBLIC_APP_URL || `http://localhost:${PORT}`;
+function verificationUrl(token: string, requestOrigin?: string) {
+  const base = process.env.PUBLIC_APP_URL || requestOrigin || `http://localhost:${PORT}`;
   return `${base}/?mode=verifyEmail&oobCode=${encodeURIComponent(token)}`;
 }
-async function deliverVerificationEmail(email: string, token: string) {
+async function deliverVerificationEmail(email: string, token: string, requestOrigin?: string) {
   const apiKey = process.env.RESEND_API_KEY;
   const from = process.env.EMAIL_FROM;
-  const url = verificationUrl(token);
+  const url = verificationUrl(token, requestOrigin);
   if (!apiKey || !from) {
     if (process.env.NODE_ENV !== 'production') {
       console.warn(`[Auth] Email delivery is not configured; local verification URL created for ${email}.`);
@@ -232,7 +232,8 @@ app.post('/api/auth/verify/request', async (req, res) => {
   const token = crypto.randomBytes(32).toString('hex');
   await writeDocument(['emailVerificationTokens', token], { uid: user.uid, expiresAt: Date.now() + 1000 * 60 * 60 * 24 });
   try {
-    const url = await deliverVerificationEmail(user.email, token);
+    const origin = `${req.protocol}://${req.get('host')}`;
+    const url = await deliverVerificationEmail(user.email, token, origin);
     return res.json({ success: true, verificationUrl: url });
   } catch (error: any) {
     await writeDocument(['emailVerificationTokens', token], {}, 'delete');

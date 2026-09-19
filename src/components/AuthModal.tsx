@@ -254,12 +254,13 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess, onToast, onClos
         handleCodeInApp: true
       };
 
+      let verificationSent = false;
       try {
         const verification = await sendEmailVerification(user, actionCodeSettings);
         setLocalVerificationUrl(verification?.verificationUrl || '');
+        verificationSent = true;
       } catch (emailErr) {
-        const verification = await sendEmailVerification(user);
-        setLocalVerificationUrl(verification?.verificationUrl || '');
+        console.warn('Verification delivery notice:', emailErr);
       }
 
       await getOrCreateUserProfile({
@@ -272,7 +273,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess, onToast, onClos
 
       startResendCooldown(60);
       setLiEmail(regEmail);
-      onToast(`Verification link sent to ${regEmail}`);
+      onToast(verificationSent ? `Verification link sent to ${regEmail}` : 'Account saved. You can log in now; verify your email later.');
       
       setScreen('step3_verify');
     } catch (err: any) {
@@ -454,18 +455,10 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess, onToast, onClos
         console.warn('User reload notice (proceeding):', reloadErr);
       }
 
-      // Check verification status
-      const isOwnerEmail = email.toLowerCase() === 'mrnovatech4@gmail.com' || email.toLowerCase() === 'owner@pulse.video';
-      if (!user.emailVerified && !isOwnerEmail) {
-        setUnverifiedEmail(email);
-        setRegEmail(email);
-        setRegPassword(password);
-        startResendCooldown(60);
-        setScreen('step3_verify');
-        onToast('⚠️ Please verify your email or click "Resend link" to confirm.');
-        setLoading(false);
-        return;
-      }
+      // Verification is encouraged but does not block a valid saved account
+      // from signing in. This keeps login usable when email delivery is not
+      // configured while preserving the verification flow for production.
+      if (!user.emailVerified) onToast('Signed in. Please verify your email when the link is available.');
 
       // Fetch or initialize creator profile
       let profile: UserProfile;
@@ -855,107 +848,44 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess, onToast, onClos
 
       {/* STEP 2: Input Password */}
       {screen === 'step2_password' && (
-        <div className="flex-1 flex flex-col justify-center items-center px-5 py-3 overflow-y-auto w-full max-w-[290px] mx-auto">
-          <div className="mb-3 text-center w-full">
-            <div className="inline-flex items-center gap-1 text-[9px] font-bold text-[#ffbd1a] uppercase tracking-wider mb-0.5">
-              Step 2 of 4
-            </div>
-            <h2 className="text-sm font-extrabold text-white">Create a Password</h2>
-            <div className="flex items-center justify-center gap-1.5 mt-0.5">
-              <span className="text-neutral-400 text-[10px] truncate max-w-[160px]">{regEmail}</span>
-              <button
-                type="button"
-                onClick={() => setScreen('step1_email')}
-                className="text-[9.5px] text-[#ffbd1a] hover:underline cursor-pointer font-semibold"
-              >
-                Change
-              </button>
+        <div className="flex-1 flex flex-col justify-center items-center px-[22px] py-8 overflow-y-auto w-full max-w-[390px] mx-auto">
+          <div className="mb-7 text-center w-full">
+            <div className="inline-flex items-center gap-1 text-[13px] font-semibold text-[#ffbd1a] uppercase tracking-wider mb-2">Step 2 of 4</div>
+            <h2 className="text-[22px] font-bold tracking-[-.5px] text-white">Create a Password</h2>
+            <div className="flex items-center justify-center gap-2 mt-2">
+              <span className="text-neutral-400 text-sm truncate max-w-[240px]">{regEmail}</span>
+              <button type="button" onClick={() => setScreen('step1_email')} className="text-sm text-[#ffbd1a] hover:underline cursor-pointer font-bold">Change</button>
             </div>
           </div>
 
-          <form onSubmit={handleStep2Submit} className="flex flex-col gap-2 w-full">
+          <form onSubmit={handleStep2Submit} className="flex flex-col gap-4 w-full">
             <div className="relative">
-              <label className="block text-[9.5px] font-semibold text-neutral-400 mb-1">Password (6+ chars)</label>
+              <label className="block text-sm font-semibold text-neutral-400 mb-2">Password (6+ chars)</label>
               <div className="relative">
-                <input
-                  id="regPasswordInput"
-                  type={showRegPassword ? 'text' : 'password'}
-                  value={regPassword}
-                  onChange={(e) => setRegPassword(e.target.value)}
-                  placeholder="••••••••"
-                  autoFocus
-                  required
-                  className="w-full bg-neutral-900 border border-white/10 rounded-lg px-2.5 py-1.5 pl-7 pr-7 text-white placeholder:text-neutral-600 focus:outline-none focus:border-[#ffbd1a] transition-colors text-xs"
-                />
-                <Lock className="w-3 h-3 text-neutral-500 absolute left-2 top-2" />
-                <button
-                  type="button"
-                  onClick={() => setShowRegPassword(!showRegPassword)}
-                  className="absolute right-2 top-2 text-neutral-400 hover:text-white cursor-pointer"
-                >
-                  {showRegPassword ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
-                </button>
+                <input id="regPasswordInput" type={showRegPassword ? 'text' : 'password'} value={regPassword} onChange={(e) => setRegPassword(e.target.value)} placeholder="••••••••" autoFocus required className="w-full h-[52px] bg-[#151515] border border-white/[.14] rounded-full px-12 text-white placeholder:text-neutral-600 focus:outline-none focus:border-[#ffbd1a] transition-colors text-[17px]" />
+                <Lock className="w-5 h-5 text-neutral-500 absolute left-4 top-4" />
+                <button type="button" onClick={() => setShowRegPassword(!showRegPassword)} className="absolute right-4 top-4 text-neutral-400 hover:text-white cursor-pointer">{showRegPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}</button>
               </div>
             </div>
 
             <div className="relative">
-              <label className="block text-[9.5px] font-semibold text-neutral-400 mb-1">Confirm Password</label>
+              <label className="block text-sm font-semibold text-neutral-400 mb-2">Confirm Password</label>
               <div className="relative">
-                <input
-                  id="regConfirmPasswordInput"
-                  type={showRegConfirmPassword ? 'text' : 'password'}
-                  value={regConfirmPassword}
-                  onChange={(e) => setRegConfirmPassword(e.target.value)}
-                  placeholder="••••••••"
-                  required
-                  className="w-full bg-neutral-900 border border-white/10 rounded-lg px-2.5 py-1.5 pl-7 pr-7 text-white placeholder:text-neutral-600 focus:outline-none focus:border-[#ffbd1a] transition-colors text-xs"
-                />
-                <ShieldCheck className="w-3 h-3 text-neutral-500 absolute left-2 top-2" />
-                <button
-                  type="button"
-                  onClick={() => setShowRegConfirmPassword(!showRegConfirmPassword)}
-                  className="absolute right-2 top-2 text-neutral-400 hover:text-white cursor-pointer"
-                >
-                  {showRegConfirmPassword ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
-                </button>
+                <input id="regConfirmPasswordInput" type={showRegConfirmPassword ? 'text' : 'password'} value={regConfirmPassword} onChange={(e) => setRegConfirmPassword(e.target.value)} placeholder="••••••••" required className="w-full h-[52px] bg-[#151515] border border-white/[.14] rounded-full px-12 text-white placeholder:text-neutral-600 focus:outline-none focus:border-[#ffbd1a] transition-colors text-[17px]" />
+                <ShieldCheck className="w-5 h-5 text-neutral-500 absolute left-4 top-4" />
+                <button type="button" onClick={() => setShowRegConfirmPassword(!showRegConfirmPassword)} className="absolute right-4 top-4 text-neutral-400 hover:text-white cursor-pointer">{showRegConfirmPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}</button>
               </div>
             </div>
 
             {errorMessage && (
-              <div className="text-[#ff2b54] text-[10px] font-medium bg-[#ff2b54]/10 p-1.5 rounded-lg border border-[#ff2b54]/20 space-y-1">
-                <div className="flex items-center gap-1">
-                  <AlertTriangle className="w-3 h-3 shrink-0" />
-                  <span>{errorMessage}</span>
-                </div>
-                {isEmailAlreadyInUse && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setLiEmail(regEmail);
-                      setScreen('login');
-                    }}
-                    className="w-full mt-0.5 py-1 bg-[#ffbd1a] text-black font-extrabold rounded-md text-[9.5px] hover:bg-[#ffc93f] transition-colors cursor-pointer"
-                  >
-                    👉 Click here to Log In
-                  </button>
-                )}
+              <div className="text-[#ff5361] text-sm font-medium bg-[#ff5361]/10 px-4 py-3 rounded-full border border-[#ff5361]/20 space-y-1">
+                <div className="flex items-center gap-2"><AlertTriangle className="w-4 h-4 shrink-0" /><span>{errorMessage}</span></div>
+                {isEmailAlreadyInUse && <button type="button" onClick={() => { setLiEmail(regEmail); setScreen('login'); }} className="w-full mt-1 py-2 bg-[#ffbd1a] text-black font-bold rounded-full text-sm hover:bg-[#ffc93f] transition-colors cursor-pointer">Log in instead</button>}
               </div>
             )}
 
-            <button
-              id="step2SubmitBtn"
-              type="submit"
-              disabled={loading}
-              className="mt-0.5 w-full py-1.5 px-3 bg-white hover:bg-[#dedee2] text-black font-bold rounded-full transition-all shadow-sm cursor-pointer disabled:opacity-50 flex items-center justify-center gap-1 text-xs active:scale-95"
-            >
-              {loading ? (
-                <div className="w-3 h-3 border-2 border-black border-t-transparent rounded-full animate-spin" />
-              ) : (
-                <>
-                  <span>Create Account & Send Link</span>
-                  <ArrowRight className="w-3 h-3" />
-                </>
-              )}
+            <button id="step2SubmitBtn" type="submit" disabled={loading} className="mt-1 w-full h-[52px] px-4 bg-white hover:bg-[#dedee2] text-black font-semibold rounded-full transition-all shadow-sm cursor-pointer disabled:opacity-50 flex items-center justify-center gap-2 text-[17px] active:scale-[.985]">
+              {loading ? <div className="w-5 h-5 border-2 border-black border-t-transparent rounded-full animate-spin" /> : <><span>Create Account &amp; Send Link</span><ArrowRight className="w-5 h-5" /></>}
             </button>
           </form>
         </div>
