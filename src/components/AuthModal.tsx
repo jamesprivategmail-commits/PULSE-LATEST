@@ -3,7 +3,7 @@ import {
   auth,
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
-  signInAnonymously,
+  signInDemo,
   signInWithPopup,
   googleProvider,
   sendEmailVerification,
@@ -575,6 +575,27 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess, onToast, onClos
     }
   };
 
+  const handleDemoLogin = async () => {
+    setErrorMessage('');
+    setLoading(true);
+    try {
+      const result = await signInDemo(auth);
+      const profile = await getOrCreateUserProfile({
+        uid: result.user.uid,
+        email: result.user.email,
+        displayName: result.user.displayName,
+        photoURL: result.user.photoURL,
+        emailVerified: true
+      });
+      onToast('Demo account ready. All Pulse features use real persistence.');
+      onSuccess(profile);
+    } catch (err: any) {
+      setErrorMessage(err.message || 'Unable to start the demo account.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleSendResetPassword = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!forgotEmail || !forgotEmail.includes('@')) {
@@ -757,6 +778,15 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess, onToast, onClos
               className="w-full py-1.5 px-3 bg-transparent hover:bg-white/[0.06] text-white font-bold rounded-full border border-white/25 transition-all active:scale-95 cursor-pointer text-xs"
             >
               Log in with Email
+            </button>
+            <button
+              id="demoLoginBtn"
+              type="button"
+              onClick={handleDemoLogin}
+              disabled={loading}
+              className="w-full py-1.5 px-3 bg-[#ffbd1a]/10 hover:bg-[#ffbd1a]/20 text-[#ffbd1a] font-semibold rounded-full border border-[#ffbd1a]/40 transition-all active:scale-95 cursor-pointer disabled:opacity-50 text-xs"
+            >
+              {loading ? 'Starting demo…' : 'Demo Login · Real Saved Data'}
             </button>
 
             <div className="my-0.5 flex items-center gap-2">

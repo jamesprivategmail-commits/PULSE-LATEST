@@ -14,6 +14,7 @@ export function onAuthStateChanged(_auth: PulseAuth, callback: (user: PulseUser 
 export async function createUserWithEmailAndPassword(_auth: PulseAuth, email: string, password: string) { const result = await request('/auth/signup', { method: 'POST', body: JSON.stringify({ email, password }) }); auth.currentUser = result.user; emit(); return { user: result.user }; }
 export async function signInWithEmailAndPassword(_auth: PulseAuth, email: string, password: string) { const result = await request('/auth/signin', { method: 'POST', body: JSON.stringify({ email, password }) }); auth.currentUser = result.user; emit(); return { user: result.user }; }
 export async function signInAnonymously(_auth: PulseAuth) { const result = await request('/auth/anonymous', { method: 'POST' }); auth.currentUser = result.user; emit(); return { user: result.user }; }
+export async function signInDemo(_auth: PulseAuth) { const result = await request('/auth/demo', { method: 'POST' }); auth.currentUser = result.user; emit(); return { user: result.user }; }
 export async function signOut(_auth: PulseAuth) { await request('/auth/signout', { method: 'POST' }); auth.currentUser = null; emit(); }
 export async function signInWithPopup(..._args: any[]): Promise<{ user: PulseUser }> { throw new Error('Google sign-in is not enabled on the new Pulse backend yet. Use email/password.'); }
 export async function sendEmailVerification(user: PulseUser, _settings?: any) { return request('/auth/verify/request', { method: 'POST', body: JSON.stringify({ uid: user.uid }) }); }
