@@ -1,0 +1,16 @@
+{
+  "previewPort": 3000,
+  "healthPath": "/",
+  "startCommand": "docker compose -f docker-compose.base44.yml up -d",
+  "secrets": [
+    { "name": "GEMINI_API_KEY", "description": "Google Gemini API key for server-side AI features (captions, hashtags). Get it from Google AI Studio (aistudio.google.com).", "requiredAtBoot": false, "generatedForDevelopment": true },
+    { "name": "GROQ_API_KEY", "description": "Groq API key for AI inference (captions, hashtags, hooks). Get it from console.groq.com.", "requiredAtBoot": false, "generatedForDevelopment": true },
+    { "name": "LIVEKIT_URL", "description": "LiveKit server URL (wss://...) for real-time audio/video streaming. From your LiveKit project dashboard.", "requiredAtBoot": false },
+    { "name": "LIVEKIT_API_KEY", "description": "LiveKit API key for generating stream tokens. From your LiveKit project dashboard.", "requiredAtBoot": false },
+    { "name": "LIVEKIT_API_SECRET", "description": "LiveKit API secret for generating stream tokens. From your LiveKit project dashboard.", "requiredAtBoot": false },
+    { "name": "TELEGRAM_BOT_TOKEN", "description": "Telegram bot token for the central admin/moderation console. Create a bot via @BotFather.", "requiredAtBoot": false },
+    { "name": "TELEGRAM_ADMIN_CHAT_ID", "description": "Numeric Telegram chat/user ID of the platform admin (authorizes bot commands). Get from @userinfobot.", "requiredAtBoot": false },
+    { "name": "RESEND_API_KEY", "description": "Resend API key for sending email verification links on signup. From resend.com.", "requiredAtBoot": false },
+    { "name": "EMAIL_FROM", "description": "From address for verification emails, e.g. 'Pulse <no-reply@example.com>'. Must be a verified Resend sender.", "requiredAtBoot": false }
+  ]
+}
