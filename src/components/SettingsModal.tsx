@@ -60,6 +60,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [dataSaver, setDataSaver] = useState<boolean>(() => {
     return localStorage.getItem('pulse_data_saver') === 'true';
   });
+  const [liteMode, setLiteMode] = useState<boolean>(() => localStorage.getItem('pulse_lite_mode') === 'true');
+  const [wallpaper, setWallpaper] = useState<string>(() => localStorage.getItem('pulse_wallpaper') || 'default');
   const [cacheSize, setCacheSize] = useState('Calculating...');
   const [activeSubView, setActiveSubView] = useState<string | null>(null);
 
@@ -84,6 +86,21 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     return saved ? JSON.parse(saved) : ['spam', 'violence', 'explicit'];
   });
   const [newKeyword, setNewKeyword] = useState('');
+
+  const wallpaperOptions = [
+    { key: 'default', label: 'Obsidian', value: '#000000' },
+    { key: 'midnight', label: 'Midnight blue', value: '#050b18' },
+    { key: 'plum', label: 'Deep plum', value: '#120711' },
+    { key: 'forest', label: 'Forest', value: '#06120e' }
+  ];
+
+  useEffect(() => {
+    const selected = wallpaperOptions.find(item => item.key === wallpaper) || wallpaperOptions[0];
+    document.documentElement.style.setProperty('--pulse-wallpaper', selected.value);
+    document.documentElement.classList.toggle('pulse-lite-mode', liteMode);
+    localStorage.setItem('pulse_wallpaper', selected.key);
+    localStorage.setItem('pulse_lite_mode', String(liteMode));
+  }, [wallpaper, liteMode]);
 
   // Measure Real Storage
   const updateStorageEstimate = async () => {
@@ -491,6 +508,27 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </div>
           </div>
         </div>
+      ) : activeSubView === 'Offline videos' ? (
+        <div className="flex-1 overflow-y-auto p-4 bg-black">
+          <div className="rounded-2xl border border-white/10 bg-neutral-950 p-4">
+            <CloudDownload className="w-7 h-7 text-[#25f4ee] mb-2" />
+            <h2 className="text-sm font-extrabold text-white">Offline videos</h2>
+            <p className="mt-1 text-[11px] leading-relaxed text-neutral-400">Pulse keeps saved videos available for quick access. Open your Saved tab to choose content to watch again; downloads are not silently created without your action.</p>
+            <button type="button" onClick={() => { setActiveSubView(null); onClose(); onToast('Open Saved from your profile to manage saved videos'); }} className="mt-4 w-full rounded-xl bg-white px-3 py-2 text-xs font-bold text-black hover:bg-neutral-200">Open Saved videos</button>
+          </div>
+        </div>
+      ) : activeSubView === 'Wallpaper' ? (
+        <div className="flex-1 overflow-y-auto p-4 bg-black">
+          <p className="mb-3 text-[11px] text-neutral-400">Choose the background used across Pulse. Your choice is saved on this device.</p>
+          <div className="grid grid-cols-2 gap-2">
+            {wallpaperOptions.map(option => (
+              <button type="button" key={option.key} onClick={() => { setWallpaper(option.key); onToast(`${option.label} wallpaper applied`); }} className={`rounded-2xl border p-3 text-left ${wallpaper === option.key ? 'border-[#25f4ee] ring-1 ring-[#25f4ee]' : 'border-white/10'} `} style={{ background: option.value }}>
+                <span className="block text-xs font-bold text-white">{option.label}</span>
+                <span className="mt-1 block text-[9px] text-white/60">{wallpaper === option.key ? 'Selected' : 'Use this theme'}</span>
+              </button>
+            ))}
+          </div>
+        </div>
       ) : activeSubView === 'Notifications' ? (
         <div className="flex-1 overflow-y-auto p-3 space-y-1.5 bg-black">
           {[
@@ -652,7 +690,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </span>
             <div className="px-settings-card">
               <div 
-                onClick={() => onToast('Offline downloads coming soon')}
+                onClick={() => setActiveSubView('Offline videos')}
                 className="px-setting cursor-pointer"
               >
                 <span className="text-[11px] font-medium text-neutral-200">Offline videos</span>
@@ -686,7 +724,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               </div>
 
               <div 
-                onClick={() => onToast('Wallpaper generator coming soon')}
+                onClick={() => setActiveSubView('Wallpaper')}
                 className="px-setting cursor-pointer"
               >
                 <span className="text-[11px] font-medium text-neutral-200">Wallpaper</span>
@@ -694,11 +732,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               </div>
 
               <div 
-                onClick={() => onToast('Lite mode is currently Off')}
+                onClick={() => {
+                  const next = !liteMode;
+                  setLiteMode(next);
+                  onToast(next ? 'Lite mode enabled' : 'Lite mode disabled');
+                }}
                 className="px-setting cursor-pointer"
               >
                 <span className="text-[11px] font-medium text-neutral-200">Lite mode</span>
-                <span className="text-[10px] text-neutral-400">Off</span>
+                <span className="text-[10px] text-neutral-400">{liteMode ? 'On' : 'Off'}</span>
               </div>
             </div>
           </div>

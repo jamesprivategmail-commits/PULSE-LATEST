@@ -143,8 +143,9 @@ export const PostCard: React.FC<PostCardProps> = ({
     try {
       await toggleVideoSave(video.id, currentUser);
       onToast(next ? 'Saved' : 'Removed from saved');
-    } catch {
+    } catch (error: any) {
       setSaved(!next);
+      onToast(error?.message || 'Save could not be completed. Please try again.');
     }
   };
 
@@ -155,8 +156,9 @@ export const PostCard: React.FC<PostCardProps> = ({
     try {
       await toggleRepostVideo(video, currentUser);
       onToast(next ? 'Reposted to your profile! 🔁' : 'Removed repost');
-    } catch {
+    } catch (error: any) {
       setReposted(!next);
+      onToast(error?.message || 'Repost could not be completed. Please try again.');
     }
   };
 

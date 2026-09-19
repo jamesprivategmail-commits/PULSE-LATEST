@@ -617,7 +617,8 @@ export const UserProfilePage: React.FC<UserProfilePageProps> = ({
                 <div 
                   onClick={() => {
                     setShowDrawer(false);
-                    onToast('Offline videos coming soon');
+                    setActiveTab('saved');
+                    onToast('Saved videos opened — choose a post to watch again');
                   }}
                   className="flex items-center justify-between py-1.5 cursor-pointer hover:bg-white/5 rounded-md px-1 transition-colors"
                 >

@@ -4,6 +4,7 @@
    PULSE 2026 DESIGN TOKENS (matches reference redesign)
 ========================================================= */
 :root{
+  --pulse-wallpaper:#000000;
   --bg:#050506;
   --bg2:#09090a;
   --surface:#101012;
@@ -37,6 +38,8 @@
 
   --shadow:0 25px 90px rgba(0,0,0,.58);
 }
+
+html.pulse-lite-mode video{ content-visibility:auto; }
 
 /* Shared shell */
 .px-header{
@@ -361,7 +364,7 @@ html, body, #root {
   padding: 0;
   height: 100%;
   width: 100%;
-  background-color: #000;
+  background-color: var(--pulse-wallpaper);
   color: #fff;
   overflow: hidden;
   -webkit-font-smoothing: antialiased;
@@ -383,5 +386,4 @@ html, body, #root {
   transform: translateZ(0);
   backface-visibility: hidden;
 }
-
 

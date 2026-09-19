@@ -853,7 +853,7 @@ export default function App() {
   };
 
   return (
-    <div id="app" className="relative w-full h-[100dvh] max-w-[480px] mx-auto bg-black text-white overflow-hidden select-none font-sans flex flex-col">
+    <div id="app" className="relative w-full h-[100dvh] max-w-[480px] mx-auto bg-[var(--pulse-wallpaper,#000)] text-white overflow-hidden select-none font-sans flex flex-col">
       {/* 2-Second Initial Entry Splash Screen */}
       {showSplash && (
         <SplashScreen durationMs={2000} onFinish={() => setShowSplash(false)} />
