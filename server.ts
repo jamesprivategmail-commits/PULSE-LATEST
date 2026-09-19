@@ -226,40 +226,6 @@ app.post('/api/auth/anonymous', (req, res) => {
   const user = { uid, username: 'guest', handle: '@guest', displayName: 'Guest', createdAt: Date.now(), isAnonymous: true };
   writeDocument(['users', uid], user); issueSession(res, uid); res.json({ user });
 });
-app.post('/api/auth/demo', async (_req, res) => {
-  try {
-    const demoEmail = 'demo@pulse.test';
-    const existing = listDocuments(['users']).find((row: any) => row.data?.email === demoEmail);
-    let user = existing?.data;
-    if (!user) {
-      user = {
-        uid: 'pulse_demo_account',
-        email: demoEmail,
-        username: 'pulse_demo',
-        handle: '@pulse_demo',
-        displayName: 'Pulse Demo',
-        photoURL: 'https://api.dicebear.com/7.x/bottts/svg?seed=pulse-demo',
-        bio: 'Persistent Pulse demo account for testing real features.',
-        followers: 0,
-        following: 0,
-        likesReceived: 0,
-        emailVerified: true,
-        verified: true,
-        verificationStatus: 'verified',
-        role: 'user',
-        isDemo: true,
-        isAnonymous: false,
-        createdAt: Date.now(),
-        passwordHash: await bcrypt.hash(crypto.randomUUID(), 10)
-      };
-      await writeDocument(['users', user.uid], user);
-    }
-    issueSession(res, user.uid);
-    res.json({ user: publicUser(user) });
-  } catch (error: any) {
-    res.status(500).json({ error: error.message || 'Unable to start the demo session.' });
-  }
-});
 app.post('/api/auth/verify/request', async (req, res) => {
   const user = sessionUser(req);
   if (!user?.email) return res.status(401).json({ error: 'Not signed in.' });
