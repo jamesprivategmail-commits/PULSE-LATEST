@@ -863,7 +863,7 @@ export default function App() {
       <Toast message={toastMessage} />
 
       {/* Auth Modal */}
-      {(!currentUser && showAuthModal) && (
+      {showAuthModal && (
         <AuthModal
           onSuccess={(profile) => {
             setCurrentUser(profile);
