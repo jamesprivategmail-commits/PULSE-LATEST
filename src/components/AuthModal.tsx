@@ -59,6 +59,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess, onToast, onClos
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   const [unverifiedEmail, setUnverifiedEmail] = useState<string | null>(null);
+  const [localVerificationUrl, setLocalVerificationUrl] = useState('');
   const [isEmailAlreadyInUse, setIsEmailAlreadyInUse] = useState(false);
   
   // Step-by-Step Registration state
@@ -254,9 +255,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess, onToast, onClos
       };
 
       try {
-        await sendEmailVerification(user, actionCodeSettings);
+        const verification = await sendEmailVerification(user, actionCodeSettings);
+        setLocalVerificationUrl(verification?.verificationUrl || '');
       } catch (emailErr) {
-        await sendEmailVerification(user);
+        const verification = await sendEmailVerification(user);
+        setLocalVerificationUrl(verification?.verificationUrl || '');
       }
 
       await getOrCreateUserProfile({
@@ -334,10 +337,12 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess, onToast, onClos
     setLoading(true);
     try {
       if (auth.currentUser) {
-        await sendEmailVerification(auth.currentUser);
+        const verification = await sendEmailVerification(auth.currentUser);
+        setLocalVerificationUrl(verification?.verificationUrl || '');
       } else if (regEmail && regPassword) {
         const cred = await signInWithEmailAndPassword(auth, regEmail.trim(), regPassword);
-        await sendEmailVerification(cred.user);
+        const verification = await sendEmailVerification(cred.user);
+        setLocalVerificationUrl(verification?.verificationUrl || '');
       }
       startResendCooldown(60);
       onToast(`New verification link sent to ${regEmail || liEmail}`);
@@ -995,6 +1000,12 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess, onToast, onClos
               <span>Return here to choose your username!</span>
             </div>
           </div>
+
+          {localVerificationUrl && (
+            <a href={localVerificationUrl} className="w-full mb-2.5 rounded-lg border border-[#ffbd1a]/30 bg-[#ffbd1a]/10 px-2.5 py-2 text-[10px] font-semibold text-[#ffbd1a] hover:bg-[#ffbd1a]/20 transition-colors">
+              Local test mode: open the verification link
+            </a>
+          )}
 
           <div className="flex flex-col gap-1.5 w-full">
             <button

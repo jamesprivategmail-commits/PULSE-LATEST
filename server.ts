@@ -165,8 +165,14 @@ function verificationUrl(token: string) {
 async function deliverVerificationEmail(email: string, token: string) {
   const apiKey = process.env.RESEND_API_KEY;
   const from = process.env.EMAIL_FROM;
-  if (!apiKey || !from) throw Object.assign(new Error('Email delivery is not configured. Set RESEND_API_KEY and EMAIL_FROM before enabling account verification.'), { statusCode: 503 });
   const url = verificationUrl(token);
+  if (!apiKey || !from) {
+    if (process.env.NODE_ENV !== 'production') {
+      console.warn(`[Auth] Email delivery is not configured; local verification URL created for ${email}.`);
+      return url;
+    }
+    throw Object.assign(new Error('Email delivery is not configured. Set RESEND_API_KEY and EMAIL_FROM before enabling account verification.'), { statusCode: 503 });
+  }
   const response = await fetch('https://api.resend.com/emails', {
     method: 'POST',
     headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
@@ -1577,8 +1583,12 @@ async function pollTelegramUpdates() {
   }
 }
 
-// Start bot background polling
-pollTelegramUpdates().catch((e) => console.error('Telegram polling error:', e));
+// Start bot background polling only when a real token is configured.
+if (TELEGRAM_BOT_TOKEN) {
+  pollTelegramUpdates().catch((e) => console.error('Telegram polling error:', e));
+} else {
+  console.warn('Telegram polling disabled: TELEGRAM_BOT_TOKEN is not configured.');
+}
 
 // -------------------------------------------------------------
 // REST API ROUTES
@@ -1588,9 +1598,9 @@ pollTelegramUpdates().catch((e) => console.error('Telegram polling error:', e));
 app.get('/api/health', (req, res) => {
   res.json({
     status: 'ok',
-    telegramBot: true,
+    telegramBot: !!TELEGRAM_BOT_TOKEN,
     adminHandle: TELEGRAM_ADMIN_HANDLE,
-    botActive: botPollingActive
+    botActive: botPollingActive && !!TELEGRAM_BOT_TOKEN
   });
 });
 
@@ -2011,7 +2021,7 @@ async function startServer() {
 
   if (process.env.NODE_ENV !== 'production') {
     const vite = await createViteServer({
-      server: { middlewareMode: true },
+      server: { middlewareMode: true, allowedHosts: true },
       appType: 'spa'
     });
     app.use(vite.middlewares);
