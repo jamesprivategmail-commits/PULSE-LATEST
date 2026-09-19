@@ -13,7 +13,7 @@ if (typeof window !== 'undefined') void refreshUser();
 export function onAuthStateChanged(_auth: PulseAuth, callback: (user: PulseUser | null) => void) { listeners.add(callback); callback(auth.currentUser); if (auth.currentUser === null) void refreshUser(); return () => listeners.delete(callback); }
 export async function createUserWithEmailAndPassword(_auth: PulseAuth, email: string, password: string) { const result = await request('/auth/signup', { method: 'POST', body: JSON.stringify({ email, password }) }); auth.currentUser = result.user; emit(); return { user: result.user }; }
 export async function signInWithEmailAndPassword(_auth: PulseAuth, email: string, password: string) { const result = await request('/auth/signin', { method: 'POST', body: JSON.stringify({ email, password }) }); auth.currentUser = result.user; emit(); return { user: result.user }; }
-export async function signInAnonymously(_auth: PulseAuth) { const result = await request('/auth/anonymous', { method: 'POST' }); auth.currentUser = result.user; emit(); return { user: result.user }; }
+
 export async function signOut(_auth: PulseAuth) { await request('/auth/signout', { method: 'POST' }); auth.currentUser = null; emit(); }
 export async function signInWithPopup(..._args: any[]): Promise<{ user: PulseUser }> { throw new Error('Google sign-in is not enabled on the new Pulse backend yet. Use email/password.'); }
 export async function sendEmailVerification(user: PulseUser, _settings?: any) { return request('/auth/verify/request', { method: 'POST', body: JSON.stringify({ uid: user.uid }) }); }
@@ -37,7 +37,7 @@ export function arrayUnion(...values: any[]) { return { __op: 'arrayUnion', valu
 export function arrayRemove(...values: any[]) { return { __op: 'arrayRemove', values }; }
 export const db = { __pulseBackend: true };
 function refPayload(ref: Ref) { return { path: ref.path || ref.collection?.path, constraints: ref.constraints || [] }; }
-export async function getDoc(ref: Ref) { return request('/db/doc', { method: 'POST', body: JSON.stringify(refPayload(ref)) }); }
+export async function getDoc(ref: Ref) { const r = await request('/db/doc', { method: 'POST', body: JSON.stringify(refPayload(ref)) }); return { id: r.id, exists: () => !!r.exists, data: () => r.data ?? null, ref }; }
 export async function getDocs(ref: Ref) { const result = await request('/db/query', { method: 'POST', body: JSON.stringify(refPayload(ref)) }); const docs = (result.docs || []).map((item: any) => ({ ...item, exists: () => item.exists !== false, data: () => item.data })); return { ...result, docs, forEach: (fn: (doc: any) => void) => docs.forEach(fn) }; }
 export async function setDoc(ref: Ref, data: AnyRecord, options?: { merge?: boolean }) { await request('/db/doc', { method: 'PUT', body: JSON.stringify({ ...refPayload(ref), data, mode: options?.merge ? 'update' : 'set' }) }); }
 export async function updateDoc(ref: Ref, data: AnyRecord) { await request('/db/doc', { method: 'PUT', body: JSON.stringify({ ...refPayload(ref), data, mode: 'update' }) }); }

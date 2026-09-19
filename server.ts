@@ -221,11 +221,7 @@ app.post('/api/auth/signin', async (req, res) => {
   if (!row || !row.data?.passwordHash || !(await bcrypt.compare(password, row.data.passwordHash))) return res.status(401).json({ error: 'Incorrect email or password.' });
   issueSession(res, row.id); res.json({ user: publicUser(row.data) });
 });
-app.post('/api/auth/anonymous', (req, res) => {
-  const uid = `guest_${crypto.randomUUID()}`;
-  const user = { uid, username: 'guest', handle: '@guest', displayName: 'Guest', createdAt: Date.now(), isAnonymous: true };
-  writeDocument(['users', uid], user); issueSession(res, uid); res.json({ user });
-});
+
 app.post('/api/auth/verify/request', async (req, res) => {
   const user = sessionUser(req);
   if (!user?.email) return res.status(401).json({ error: 'Not signed in.' });
