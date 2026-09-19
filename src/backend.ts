@@ -6,7 +6,7 @@ export interface PulseUser { uid: string; email?: string | null; displayName?: s
 class PulseAuth { currentUser: PulseUser | null = null; }
 export const auth = new PulseAuth();
 export const googleProvider = {};
-async function request(path: string, init?: RequestInit) { const response = await fetch(`${API}${path}`, { headers: { 'Content-Type': 'application/json', ...(init?.headers || {}) }, ...init }); const payload = await response.json().catch(() => ({})); if (!response.ok) throw Object.assign(new Error(payload.error || 'Request failed'), { code: payload.code || 'backend/error' }); return payload; }
+async function request(path: string, init?: RequestInit) { const response = await fetch(`${API}${path}`, { credentials: 'include', headers: { 'Content-Type': 'application/json', ...(init?.headers || {}) }, ...init }); const payload = await response.json().catch(() => ({})); if (!response.ok) throw Object.assign(new Error(payload.error || 'Request failed'), { code: payload.code || 'backend/error', status: response.status }); return payload; }
 function emit() { listeners.forEach(fn => fn(auth.currentUser)); }
 async function refreshUser() { try { const result = await request('/auth/me'); auth.currentUser = result.user || null; } catch { auth.currentUser = null; } emit(); }
 if (typeof window !== 'undefined') void refreshUser();
@@ -16,11 +16,11 @@ export async function signInWithEmailAndPassword(_auth: PulseAuth, email: string
 export async function signInAnonymously(_auth: PulseAuth) { const result = await request('/auth/anonymous', { method: 'POST' }); auth.currentUser = result.user; emit(); return { user: result.user }; }
 export async function signOut(_auth: PulseAuth) { await request('/auth/signout', { method: 'POST' }); auth.currentUser = null; emit(); }
 export async function signInWithPopup(..._args: any[]): Promise<{ user: PulseUser }> { throw new Error('Google sign-in is not enabled on the new Pulse backend yet. Use email/password.'); }
-export async function sendEmailVerification(..._args: any[]) { return undefined; }
+export async function sendEmailVerification(user: PulseUser, _settings?: any) { return request('/auth/verify/request', { method: 'POST', body: JSON.stringify({ uid: user.uid }) }); }
 export async function sendPasswordResetEmail(..._args: any[]) { throw new Error('Password reset email service is not configured yet.'); }
 export async function verifyPasswordResetCode(..._args: any[]): Promise<string> { throw new Error('Password reset email service is not configured yet.'); }
 export async function confirmPasswordReset(..._args: any[]) { throw new Error('Password reset email service is not configured yet.'); }
-export async function applyActionCode(..._args: any[]) { return undefined; }
+export async function applyActionCode(_auth: PulseAuth, token: string) { const result = await request('/auth/verify', { method: 'POST', body: JSON.stringify({ token }) }); if (result.user) { auth.currentUser = result.user; emit(); } return result; }
 export async function checkActionCode() { return {}; }
 export async function updateProfile(user: PulseUser, updates: { displayName?: string | null; photoURL?: string | null }) { const result = await request('/auth/profile', { method: 'PATCH', body: JSON.stringify(updates) }); Object.assign(user, result.user); auth.currentUser = user; emit(); }
 export async function reload(user: PulseUser) { await refreshUser(); Object.assign(user, auth.currentUser || {}); }

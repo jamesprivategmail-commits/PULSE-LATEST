@@ -124,7 +124,7 @@ export const UserProfilePage: React.FC<UserProfilePageProps> = ({
   const [savedVideos, setSavedVideos] = useState<VideoPost[]>([]);
   const [likedVideos, setLikedVideos] = useState<VideoPost[]>([]);
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
-  const [activeTab, setActiveTab] = useState<'videos' | 'private' | 'saved' | 'liked'>('videos');
+  const [activeTab, setActiveTab] = useState<'videos' | 'media' | 'reposts' | 'private' | 'saved' | 'liked'>('videos');
   const [showDrawer, setShowDrawer] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showAffiliateBanner, setShowAffiliateBanner] = useState(true);
@@ -133,6 +133,7 @@ export const UserProfilePage: React.FC<UserProfilePageProps> = ({
 
   // Edit form state
   const [editUsername, setEditUsername] = useState(currentUser.username);
+  const [editHandle, setEditHandle] = useState(currentUser.handle || '');
   const [editBio, setEditBio] = useState(currentUser.bio || '');
   const [editAvatar, setEditAvatar] = useState(currentUser.photoURL);
   const [editWebsite, setEditWebsite] = useState(currentUser.websiteLink || '');
@@ -185,6 +186,7 @@ export const UserProfilePage: React.FC<UserProfilePageProps> = ({
   useEffect(() => {
     if (showEditModal) {
       setEditUsername(currentUser.username);
+      setEditHandle(currentUser.handle || '');
       setEditBio(currentUser.bio || '');
       setEditAvatar(currentUser.photoURL);
       setEditWebsite(currentUser.websiteLink || '');
@@ -244,10 +246,12 @@ export const UserProfilePage: React.FC<UserProfilePageProps> = ({
     try {
       const finalAvatar = editAvatar || currentUser.photoURL;
       const finalUsername = editUsername.trim() || currentUser.username;
+      const normalizedHandle = editHandle.trim().replace(/^@+/, '').toLowerCase().replace(/[^a-z0-9_.]/g, '').slice(0, 24);
       const finalBio = editBio.trim();
 
       const updates: Partial<UserProfile> = {
         username: finalUsername,
+        handle: normalizedHandle ? `@${normalizedHandle}` : currentUser.handle,
         bio: finalBio,
         photoURL: finalAvatar,
         websiteLink: editWebsite.trim(),
@@ -340,259 +344,55 @@ export const UserProfilePage: React.FC<UserProfilePageProps> = ({
     });
 
   const privateVideos = userVideos.filter(v => v.isArchived);
+  const mediaVideos = activeVideos.filter(v => v.mediaType === 'image' || v.mediaType === 'carousel');
+  const repostedVideos = activeVideos.filter(v => v.isReposted);
 
   return (
-    <div className="w-full h-full bg-black text-white overflow-y-auto pt-1 pb-20 max-w-[480px] mx-auto select-none font-sans">
-      {/* 1. TOP HEADER (Tight, minimal, pure black) */}
-      <div className="px-header" style={{ position: 'relative' }}>
-        <button
-          onClick={() => onOpenFollowList('followers', currentUser.uid)}
-          className="px-icon-btn"
-          title="Find friends"
-        >
-          <UserPlus className="w-[18px] h-[18px]" />
-        </button>
-
-        <div className="flex items-center gap-1">
-          <button
-            onClick={() => onOpenWatchHistory()}
-            className="px-icon-btn"
-            title="Footprints & History"
-          >
-            <Footprints className="w-[18px] h-[18px]" />
-          </button>
-          <button
-            onClick={() => {
-              if (navigator.share) {
-                navigator.share({
-                  title: `${currentUser.username} on Pulse`,
-                  url: window.location.href
-                }).catch(() => {});
-              } else {
-                navigator.clipboard?.writeText(window.location.href);
-                onToast('Profile link copied to clipboard 🔗');
-              }
-            }}
-            className="px-icon-btn"
-            title="Share Profile"
-          >
-            <Share2 className="w-[18px] h-[18px]" />
-          </button>
-          <button
-            onClick={() => setShowDrawer(true)}
-            className="px-icon-btn"
-            title="Menu"
-          >
-            <Menu className="w-[18px] h-[18px]" />
-          </button>
+    <div className="w-full h-full bg-black text-white overflow-y-auto pb-20 max-w-[780px] mx-auto select-none font-sans">
+      <div className="relative h-[180px] overflow-hidden bg-[radial-gradient(circle_at_75%_20%,rgba(255,189,26,.2),transparent_27%),radial-gradient(circle_at_20%_30%,rgba(74,140,255,.15),transparent_30%),linear-gradient(125deg,#1c1c1e,#080809_65%)]">
+        {currentUser.coverUrl && <img src={currentUser.coverUrl} alt="" className="absolute inset-0 w-full h-full object-cover" />}
+        <div className="absolute inset-0 bg-gradient-to-b from-transparent to-black/90" />
+      </div>
+      <div className="px-[15px]">
+        <div className="flex items-start justify-between">
+          <div className="relative -mt-12 z-10 rounded-full p-[3px] bg-gradient-to-br from-white via-neutral-500 to-white shadow-[0_0_0_5px_var(--bg),0_17px_50px_rgba(0,0,0,.55)]">
+            <img src={currentUser.photoURL} alt={currentUser.username} className="w-[106px] h-[106px] object-cover rounded-full border-2 border-[#050506]" />
+            <span className="absolute right-[3px] bottom-[3px] w-[19px] h-[19px] rounded-full border-4 border-[#050506] bg-[var(--green)]" />
+          </div>
+          <button onClick={() => setShowDrawer(true)} className="mt-3 w-10 h-10 rounded-[13px] grid place-items-center text-white hover:bg-white/[.055]" title="Profile menu"><Menu className="w-5 h-5" /></button>
+        </div>
+        <div className="mt-3.5 flex items-center gap-1.5">
+          <h1 className="text-[25px] font-black tracking-[-.9px]">{currentUser.username}</h1>
+          {currentUser.verified && <VerifiedBadge size="xs" />}
+        </div>
+        <div className="mt-0.5 text-xs text-[#818188]">{currentUser.handle?.startsWith('@') ? currentUser.handle : `@${currentUser.handle}`}</div>
+        <p className="mt-2.5 max-w-[640px] text-xs leading-6 text-[#cdccd2]">{currentUser.bio || 'Building things, exploring ideas and connecting with people around the world.'}</p>
+        <div className="mt-2.5 flex flex-wrap gap-x-4 gap-y-2 text-[9px] text-[#74747b]">
+          <span className="inline-flex items-center gap-1"><Globe className="w-3 h-3" /> Global creator</span>
+          <span className="inline-flex items-center gap-1"><Clock className="w-3 h-3" /> Joined {currentUser.createdAt ? new Date(currentUser.createdAt).getFullYear() : '2026'}</span>
+          {currentUser.instagramLink && <a href={`https://instagram.com/${currentUser.instagramLink}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-pink-400"><Instagram className="w-3 h-3" /> Instagram</a>}
+        </div>
+        <div className="grid grid-cols-3 mt-[18px] py-3.5 border-y border-white/[.075]">
+          <button onClick={() => onOpenFollowList('following', currentUser.uid)} className="text-center"><strong className="block text-[17px] font-extrabold">{formatCount(currentUser.following || 0)}</strong><span className="mt-0.5 block text-[9px] text-[#717178]">Following</span></button>
+          <button onClick={() => onOpenFollowList('followers', currentUser.uid)} className="text-center border-x border-white/[.075]"><strong className="block text-[17px] font-extrabold">{formatCount(currentUser.followers || 0)}</strong><span className="mt-0.5 block text-[9px] text-[#717178]">Followers</span></button>
+          <button onClick={() => setActiveTab('liked')} className="text-center"><strong className="block text-[17px] font-extrabold">{formatCount(currentUser.likesReceived || userVideos.reduce((acc, v) => acc + (v.likeCount || 0), 0))}</strong><span className="mt-0.5 block text-[9px] text-[#717178]">Likes</span></button>
+        </div>
+        <div className="flex gap-2 mt-[15px]">
+          <button onClick={() => setShowEditModal(true)} className="flex-1 h-11 rounded-[13px] bg-[#efeff0] text-[#050505] text-xs font-extrabold">Edit profile</button>
+          <button onClick={() => { if (navigator.share) navigator.share({ title: `${currentUser.username} on Pulse`, url: window.location.href }).catch(() => {}); else { navigator.clipboard?.writeText(window.location.href); onToast('Profile link copied'); } }} className="w-11 h-11 rounded-[13px] grid place-items-center bg-[#171719] border border-white/[.075]"><Share2 className="w-4 h-4" /></button>
+          <button onClick={() => setShowWalletModal(true)} className="w-11 h-11 rounded-[13px] grid place-items-center bg-[var(--yellow)] text-black"><Gem className="w-4 h-4" /></button>
         </div>
       </div>
 
-      {/* 2. AVATAR & EDIT PHOTO BUTTON */}
-      <div className="flex flex-col items-start px-3.5 pt-2 pb-0.5 relative">
-        <div className="relative" style={{ marginTop: -44 }}>
-          {/* Ring-style avatar matching Pulse 2026 profile */}
-          <div
-            className="rounded-full relative"
-            style={{
-              width: 84, height: 84, padding: 3,
-              background: 'linear-gradient(135deg,#fff,#777,#fff)',
-              boxShadow: '0 0 0 4px var(--bg), 0 14px 40px rgba(0,0,0,.5)'
-            }}
-          >
-            <img
-              src={currentUser.photoURL}
-              alt={currentUser.username}
-              className="w-full h-full object-cover rounded-full"
-              style={{ border: '2px solid var(--bg)' }}
-            />
-          </div>
-          <span
-            className="absolute rounded-full"
-            style={{ width: 15, height: 15, right: 2, bottom: 2, border: '3px solid var(--bg)', background: 'var(--green)' }}
-          />
-
-          {/* Plus Badge at Bottom-Right */}
-          <button
-            onClick={() => {
-              setEditUsername(currentUser.username);
-              setEditBio(currentUser.bio || '');
-              setEditAvatar(currentUser.photoURL);
-              setShowEditModal(true);
-            }}
-            className="absolute -bottom-0.5 -left-0.5 w-5 h-5 rounded-full bg-[#20D5EC] text-white flex items-center justify-center border border-black shadow-xs cursor-pointer hover:scale-105 transition-transform"
-            title="Change photo / Edit profile"
-          >
-            <Plus className="w-3 h-3 stroke-[3]" />
+      <div className="grid grid-cols-5 mt-5 h-[54px] border-y border-white/[.075] bg-black/90">
+        {([
+          ['videos', 'Posts'], ['media', 'Media'], ['reposts', 'Reposts'], ['saved', 'Saved'], ['liked', 'Liked']
+        ] as const).map(([tab, label]) => (
+          <button key={tab} onClick={() => setActiveTab(tab)} className={`relative text-[9px] font-extrabold ${activeTab === tab ? 'text-white' : 'text-[#626269]'}`}>
+            {label}
+            {activeTab === tab && <span className="absolute bottom-0 left-1/2 -translate-x-1/2 w-7 h-0.5 rounded-full bg-white" />}
           </button>
-        </div>
-
-        {/* 3. USERNAME ROW WITH INLINE EDIT BUTTON */}
-        <div className="flex items-center justify-start gap-1.5 mt-2.5">
-          <h1 className="font-black tracking-tight flex items-center gap-1" style={{ fontSize: 19, letterSpacing: '-.5px', color: 'var(--text)' }}>
-            {currentUser.username}
-            {currentUser.verified && <VerifiedBadge size="xs" />}
-          </h1>
-        </div>
-
-        {/* Handle */}
-        <span className="text-[11px] font-normal mt-0.5" style={{ color: 'var(--muted)' }}>
-          {currentUser.handle.startsWith('@') ? currentUser.handle : `@${currentUser.handle}`}
-        </span>
-
-        {/* Inline Edit Pill Button */}
-        <button
-          onClick={() => {
-            setEditUsername(currentUser.username);
-            setEditBio(currentUser.bio || '');
-            setEditAvatar(currentUser.photoURL);
-            setShowEditModal(true);
-          }}
-          className="mt-2 px-3.5 h-8 text-[11px] font-bold rounded-xl cursor-pointer transition-colors"
-          style={{ background: 'var(--white)', color: 'var(--black)' }}
-        >
-          Edit profile
-        </button>
-
-        {/* 4. STATS ROW — bordered 3-column grid like reference */}
-        <div
-          className="grid grid-cols-3 w-full mt-3 py-2.5"
-          style={{ borderTop: '1px solid var(--line)', borderBottom: '1px solid var(--line)' }}
-        >
-          <div
-            onClick={() => onOpenFollowList('following', currentUser.uid)}
-            className="flex flex-col items-center cursor-pointer hover:opacity-80 transition-opacity"
-          >
-            <b className="font-extrabold" style={{ fontSize: 15, color: 'var(--text)' }}>{formatCount(currentUser.following || 0)}</b>
-            <span className="mt-0.5" style={{ fontSize: 9.5, color: 'var(--dim)' }}>Following</span>
-          </div>
-
-          <div
-            onClick={() => onOpenFollowList('followers', currentUser.uid)}
-            className="flex flex-col items-center cursor-pointer hover:opacity-80 transition-opacity"
-            style={{ borderLeft: '1px solid var(--line)', borderRight: '1px solid var(--line)' }}
-          >
-            <b className="font-extrabold" style={{ fontSize: 15, color: 'var(--text)' }}>{formatCount(currentUser.followers || 0)}</b>
-            <span className="mt-0.5" style={{ fontSize: 9.5, color: 'var(--dim)' }}>Followers</span>
-          </div>
-
-          <div className="flex flex-col items-center">
-            <b className="font-extrabold" style={{ fontSize: 15, color: 'var(--text)' }}>
-              {formatCount(currentUser.likesReceived || userVideos.reduce((acc, v) => acc + (v.likeCount || 0), 0))}
-            </b>
-            <span className="mt-0.5" style={{ fontSize: 9.5, color: 'var(--dim)' }}>Likes</span>
-          </div>
-        </div>
-
-        {/* 5. BIO & INTEREST PILLS ROW (Compact, rounded pills) */}
-        <div className="flex items-center justify-start gap-1 mt-2 flex-wrap">
-          {currentUser.bio ? (
-            <button
-              onClick={() => setShowEditModal(true)}
-              className="px-2.5 py-0.5 bg-neutral-900 hover:bg-neutral-800 text-neutral-200 text-[10px] font-medium rounded-full border border-white/10 cursor-pointer max-w-[170px] truncate"
-            >
-              {currentUser.bio}
-            </button>
-          ) : (
-            <button
-              onClick={() => setShowEditModal(true)}
-              className="px-2.5 py-0.5 bg-neutral-900 hover:bg-neutral-800 text-neutral-300 text-[10px] font-medium rounded-full border border-white/10 cursor-pointer flex items-center gap-1"
-            >
-              <Plus className="w-2.5 h-2.5 text-neutral-400" />
-              <span>Add bio</span>
-            </button>
-          )}
-
-          <button
-            onClick={() => setShowEditModal(true)}
-            className="px-2.5 py-0.5 bg-neutral-900 hover:bg-neutral-800 text-neutral-300 text-[10px] font-medium rounded-full border border-white/10 cursor-pointer flex items-center gap-1"
-          >
-            <span>❤️ My hobbies are...</span>
-          </button>
-        </div>
-
-        {/* Optional Social Links if provided */}
-        {(currentUser.websiteLink || currentUser.instagramLink || currentUser.youtubeLink) && (
-          <div className="flex items-center gap-2 mt-1 text-[9.5px] text-neutral-400">
-            {currentUser.websiteLink && (
-              <a href={currentUser.websiteLink} target="_blank" rel="noreferrer" className="flex items-center gap-0.5 text-[#20D5EC] hover:underline">
-                <Globe className="w-2.5 h-2.5" /> Website
-              </a>
-            )}
-            {currentUser.instagramLink && (
-              <a href={`https://instagram.com/${currentUser.instagramLink}`} target="_blank" rel="noreferrer" className="flex items-center gap-0.5 text-pink-400 hover:underline">
-                <Instagram className="w-2.5 h-2.5" /> Instagram
-              </a>
-            )}
-            {currentUser.youtubeLink && (
-              <a href={`https://youtube.com/@${currentUser.youtubeLink}`} target="_blank" rel="noreferrer" className="flex items-center gap-0.5 text-rose-400 hover:underline">
-                <Youtube className="w-2.5 h-2.5" /> YouTube
-              </a>
-            )}
-          </div>
-        )}
-      </div>
-
-      {/* 6. PROFILE TABS (Minimalist icon tabs with active underline) */}
-      <div className="flex mt-3 px-1" style={{ height: 46, borderTop: '1px solid var(--line)', borderBottom: '1px solid var(--line)' }}>
-        {/* Equalizer Soundwave / Video tab */}
-        <button
-          onClick={() => setActiveTab('videos')}
-          className={`flex-1 py-1.5 flex justify-center items-center relative cursor-pointer ${
-            activeTab === 'videos' ? 'text-white' : 'text-neutral-500 hover:text-neutral-300'
-          }`}
-        >
-          <div className="flex items-center gap-[2px] h-3">
-            <span className={`w-[1.5px] h-2 rounded-full ${activeTab === 'videos' ? 'bg-white' : 'bg-neutral-600'}`} />
-            <span className={`w-[1.5px] h-3 rounded-full ${activeTab === 'videos' ? 'bg-white' : 'bg-neutral-600'}`} />
-            <span className={`w-[1.5px] h-1.5 rounded-full ${activeTab === 'videos' ? 'bg-white' : 'bg-neutral-600'}`} />
-            <span className={`w-[1.5px] h-2.5 rounded-full ${activeTab === 'videos' ? 'bg-white' : 'bg-neutral-600'}`} />
-            <span className={`w-[1.5px] h-2 rounded-full ${activeTab === 'videos' ? 'bg-white' : 'bg-neutral-600'}`} />
-            <span className={`w-[1.5px] h-2.5 rounded-full ${activeTab === 'videos' ? 'bg-white' : 'bg-neutral-600'}`} />
-          </div>
-          {activeTab === 'videos' && (
-            <div className="absolute bottom-0 left-6 right-6 h-[1.5px] bg-white rounded-full" />
-          )}
-        </button>
-
-        {/* Private / Lock tab */}
-        <button
-          onClick={() => setActiveTab('private')}
-          className={`flex-1 py-1.5 flex justify-center items-center relative cursor-pointer ${
-            activeTab === 'private' ? 'text-white' : 'text-neutral-500 hover:text-neutral-300'
-          }`}
-        >
-          <Lock className="w-3 h-3 stroke-[2.2]" />
-          {activeTab === 'private' && (
-            <div className="absolute bottom-0 left-6 right-6 h-[1.5px] bg-white rounded-full" />
-          )}
-        </button>
-
-        {/* Bookmark tab */}
-        <button
-          onClick={() => setActiveTab('saved')}
-          className={`flex-1 py-1.5 flex justify-center items-center relative cursor-pointer ${
-            activeTab === 'saved' ? 'text-white' : 'text-neutral-500 hover:text-neutral-300'
-          }`}
-        >
-          <Bookmark className="w-3 h-3 stroke-[2.2]" />
-          {activeTab === 'saved' && (
-            <div className="absolute bottom-0 left-6 right-6 h-[1.5px] bg-white rounded-full" />
-          )}
-        </button>
-
-        {/* Liked / Heart tab */}
-        <button
-          onClick={() => setActiveTab('liked')}
-          className={`flex-1 py-1.5 flex justify-center items-center relative cursor-pointer ${
-            activeTab === 'liked' ? 'text-white' : 'text-neutral-500 hover:text-neutral-300'
-          }`}
-        >
-          <Heart className="w-3 h-3 stroke-[2.2]" />
-          {activeTab === 'liked' && (
-            <div className="absolute bottom-0 left-6 right-6 h-[1.5px] bg-white rounded-full" />
-          )}
-        </button>
+        ))}
       </div>
 
       {/* 7. AFFILIATE CREATOR PROMO BANNER (Compact & 40% reduced) */}
@@ -700,6 +500,24 @@ export const UserProfilePage: React.FC<UserProfilePageProps> = ({
                     Restore
                   </button>
                 </div>
+              ))}
+            </div>
+          )
+        )}
+
+        {(activeTab === 'media' || activeTab === 'reposts') && (
+          (activeTab === 'media' ? mediaVideos : repostedVideos).length === 0 ? (
+            <div className="text-center py-16 text-neutral-400 text-xs px-6">
+              {activeTab === 'media' ? <Globe className="w-8 h-8 text-neutral-600 mx-auto mb-2" /> : <Share2 className="w-8 h-8 text-neutral-600 mx-auto mb-2" />}
+              <p className="font-semibold text-neutral-200">{activeTab === 'media' ? 'No media posts yet' : 'No reposts yet'}</p>
+              <p className="text-[11px] text-neutral-400 mt-1">Real posts from this account will appear here.</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-3 gap-0.5">
+              {(activeTab === 'media' ? mediaVideos : repostedVideos).map((video) => (
+                <button key={video.id} onClick={() => onSelectVideo(video)} className="aspect-[3/4] bg-neutral-900 overflow-hidden relative cursor-pointer">
+                  <GridThumb video={video} />
+                </button>
               ))}
             </div>
           )
@@ -1013,6 +831,19 @@ export const UserProfilePage: React.FC<UserProfilePageProps> = ({
                   value={editUsername}
                   onChange={(e) => setEditUsername(e.target.value)}
                   required
+                  className="w-full bg-neutral-900 border border-white/10 rounded-lg px-2.5 py-1 text-[11px] text-white placeholder:text-neutral-500 focus:outline-none focus:border-[#20D5EC]"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[10.5px] font-bold text-neutral-300 mb-0.5">Username</label>
+                <input
+                  type="text"
+                  value={editHandle.replace(/^@/, '')}
+                  onChange={(e) => setEditHandle(e.target.value.replace(/^@+/, '').toLowerCase())}
+                  placeholder="username"
+                  autoComplete="off"
+                  spellCheck={false}
                   className="w-full bg-neutral-900 border border-white/10 rounded-lg px-2.5 py-1 text-[11px] text-white placeholder:text-neutral-500 focus:outline-none focus:border-[#20D5EC]"
                 />
               </div>

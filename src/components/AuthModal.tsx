@@ -1114,9 +1114,10 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess, onToast, onClos
                   type="text"
                   value={customHandle}
                   onChange={(e) => {
-                    let val = e.target.value;
-                    if (!val.startsWith('@')) val = '@' + val;
-                    setCustomHandle(val.toLowerCase());
+                    // Keep the input fully editable. The old implementation
+                    // re-added "@" on every keystroke, so backspace could
+                    // never clear the field and React immediately restored it.
+                    setCustomHandle(e.target.value.replace(/^@+/, '').toLowerCase());
                   }}
                   placeholder="@alex_rivera"
                   required

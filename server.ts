@@ -158,6 +158,28 @@ function publicUser(user: any) {
   const { passwordHash, ...safe } = user;
   return safe;
 }
+function verificationUrl(token: string) {
+  const base = process.env.PUBLIC_APP_URL || `http://localhost:${PORT}`;
+  return `${base}/?mode=verifyEmail&oobCode=${encodeURIComponent(token)}`;
+}
+async function deliverVerificationEmail(email: string, token: string) {
+  const apiKey = process.env.RESEND_API_KEY;
+  const from = process.env.EMAIL_FROM;
+  if (!apiKey || !from) throw Object.assign(new Error('Email delivery is not configured. Set RESEND_API_KEY and EMAIL_FROM before enabling account verification.'), { statusCode: 503 });
+  const url = verificationUrl(token);
+  const response = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      from,
+      to: [email],
+      subject: 'Verify your Pulse account',
+      html: `<p>Welcome to Pulse.</p><p><a href="${url}">Verify your email address</a></p><p>This link expires in 24 hours.</p>`
+    })
+  });
+  if (!response.ok) throw new Error(`Verification email could not be sent (${response.status}).`);
+  return url;
+}
 function sessionUser(req: express.Request) {
   const sessionId = req.cookies?.pulse_session;
   if (!sessionId) return null;
@@ -180,7 +202,7 @@ app.post('/api/auth/signup', async (req, res) => {
     if (existing) return res.status(409).json({ error: 'An account with this email already exists.' });
     const uid = crypto.randomUUID();
     const username = email.split('@')[0].replace(/[^a-z0-9_]/gi, '').slice(0, 24) || `user_${uid.slice(0, 6)}`;
-    const user = { uid, email, username, handle: `@${username}`, displayName: username, createdAt: Date.now(), passwordHash: await bcrypt.hash(password, 10), isAnonymous: false };
+    const user = { uid, email, username, handle: `@${username}`, displayName: username, emailVerified: false, createdAt: Date.now(), passwordHash: await bcrypt.hash(password, 10), isAnonymous: false };
     writeDocument(['users', uid], user);
     issueSession(res, uid);
     res.json({ user: publicUser(user) });
@@ -198,8 +220,40 @@ app.post('/api/auth/anonymous', (req, res) => {
   const user = { uid, username: 'guest', handle: '@guest', displayName: 'Guest', createdAt: Date.now(), isAnonymous: true };
   writeDocument(['users', uid], user); issueSession(res, uid); res.json({ user });
 });
+app.post('/api/auth/verify/request', async (req, res) => {
+  const user = sessionUser(req);
+  if (!user?.email) return res.status(401).json({ error: 'Not signed in.' });
+  const token = crypto.randomBytes(32).toString('hex');
+  await writeDocument(['emailVerificationTokens', token], { uid: user.uid, expiresAt: Date.now() + 1000 * 60 * 60 * 24 });
+  try {
+    const url = await deliverVerificationEmail(user.email, token);
+    return res.json({ success: true, verificationUrl: url });
+  } catch (error: any) {
+    await writeDocument(['emailVerificationTokens', token], {}, 'delete');
+    return res.status(error.statusCode || 500).json({ error: error.message || 'Unable to send verification email.' });
+  }
+});
+app.post('/api/auth/verify', async (req, res) => {
+  const token = String(req.body?.token || '').trim();
+  const record = token ? readDocument(['emailVerificationTokens', token]) : null;
+  if (!record || Number(record.expiresAt || 0) < Date.now()) return res.status(400).json({ error: 'This verification link is invalid or expired.' });
+  const user = readDocument(['users', record.uid]);
+  if (!user) return res.status(404).json({ error: 'Account not found.' });
+  await writeDocument(['users', record.uid], { emailVerified: true }, 'update');
+  await writeDocument(['emailVerificationTokens', token], {}, 'delete');
+  issueSession(res, record.uid);
+  res.json({ user: publicUser(readDocument(['users', record.uid])) });
+});
 app.post('/api/auth/signout', (req, res) => { const sessionId = req.cookies?.pulse_session; if (sessionId) writeDocument(['sessions', sessionId], {}, 'delete'); res.clearCookie('pulse_session'); res.json({ success: true }); });
-app.patch('/api/auth/profile', (req, res) => { const user = sessionUser(req); if (!user) return res.status(401).json({ error: 'Not signed in.' }); writeDocument(['users', user.uid], req.body || {}, 'update'); res.json({ user: publicUser(readDocument(['users', user.uid])) }); });
+app.patch('/api/auth/profile', (req, res) => {
+  const user = sessionUser(req);
+  if (!user) return res.status(401).json({ error: 'Not signed in.' });
+  const allowed = ['displayName', 'username', 'handle', 'bio', 'photoURL', 'coverUrl', 'websiteLink', 'instagramLink', 'youtubeLink'];
+  const updates = Object.fromEntries(allowed.filter((key) => Object.prototype.hasOwnProperty.call(req.body || {}, key)).map((key) => [key, req.body[key]]));
+  if (updates.username !== undefined && !String(updates.username).trim()) return res.status(400).json({ error: 'Username cannot be empty.' });
+  writeDocument(['users', user.uid], updates, 'update');
+  res.json({ user: publicUser(readDocument(['users', user.uid])) });
+});
 app.post('/api/db/query', (req, res) => {
   const pathParts = Array.isArray(req.body?.path) ? req.body.path : [];
   const rows = listDocuments(pathParts, Array.isArray(req.body?.constraints) ? req.body.constraints : []);

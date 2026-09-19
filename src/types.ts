@@ -4,6 +4,7 @@ export interface UserProfile {
   handle: string;
   email: string;
   photoURL: string;
+  coverUrl?: string;
   bio: string;
   followers: number;
   following: number;

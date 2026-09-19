@@ -875,7 +875,7 @@ export default function App() {
       )}
 
       {/* MAIN APPLICATION CONTAINER */}
-      <div className="relative w-full flex-1 overflow-hidden">
+      <div className="relative w-full flex-1 min-h-0 overflow-hidden flex flex-col">
         {/* TOP BAR */}
         {navTab === 'home' && (
           <header className="px-header">
@@ -945,7 +945,7 @@ export default function App() {
             ref={feedContainerRef}
 
             id="feed"
-            className="feed-scroll-container w-full h-full overflow-y-auto scrollbar-none"
+            className="feed-scroll-container w-full flex-1 min-h-0 overflow-y-auto scrollbar-none"
           >
             {/* Feed top row: For You / Following segment + live-now pill — matches design's .feed-top-row */}
             <div className="px-3.5 pt-3 pb-2.5 flex items-center justify-between gap-2">
