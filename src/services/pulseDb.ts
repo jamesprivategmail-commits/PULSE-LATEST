@@ -18,7 +18,7 @@ import {
   increment,
   writeBatch,
   runTransaction
-} from '../firebase';
+} from '../backend';
 import { 
   UserProfile, 
   VideoPost, 

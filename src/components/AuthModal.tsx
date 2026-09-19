@@ -14,7 +14,7 @@ import {
   updateProfile,
   reload,
   signOut
-} from '../firebase';
+} from '../backend';
 import { getOrCreateUserProfile, updateUserProfile } from '../services/pulseDb';
 import { APP_LOGO_URL } from '../constants/branding';
 import { UserProfile } from '../types';

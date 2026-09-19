@@ -9,7 +9,7 @@ import {
   saveFamilyPairingCloud,
   linkChildWithPairingCode
 } from '../services/pulseDb';
-import { db, getDoc, doc } from '../firebase';
+import { db, getDoc, doc } from '../backend';
 import { APP_LOGO_URL } from '../constants/branding';
 import { 
   ArrowLeft, 

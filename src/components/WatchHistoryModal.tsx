@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { VideoPost } from '../types';
 import { getWatchHistory, clearWatchHistory } from '../services/pulseDb';
-import { db, doc, getDoc } from '../firebase';
+import { db, doc, getDoc } from '../backend';
 import { X, Clock, Trash2, Play } from 'lucide-react';
 
 interface WatchHistoryModalProps {

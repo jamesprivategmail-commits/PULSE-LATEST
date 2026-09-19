@@ -9,7 +9,7 @@ import {
   getUserLikedVideos,
   getUserSavedVideos 
 } from '../services/pulseDb';
-import { db, getDocs, onSnapshot, collection, query, where, auth, sendEmailVerification, reload, updateProfile } from '../firebase';
+import { db, getDocs, onSnapshot, collection, query, where, auth, sendEmailVerification, reload, updateProfile } from '../backend';
 import { 
   UserPlus, 
   Share2, 

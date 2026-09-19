@@ -13,7 +13,7 @@ import {
   isPlatformOwner,
   sendTipToCreator
 } from '../services/pulseDb';
-import { db, doc, getDoc } from '../firebase';
+import { db, doc, getDoc } from '../backend';
 import { formatCount } from '../utils/formatters';
 import { 
   Heart, 

@@ -3,7 +3,7 @@ import {
   auth,
   onAuthStateChanged,
   signOut
-} from './firebase';
+} from './backend';
 import {
   subscribeToUserProfile,
   subscribeToVideos,

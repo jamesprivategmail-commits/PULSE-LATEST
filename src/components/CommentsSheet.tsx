@@ -6,7 +6,7 @@ import {
   addCommentReply, 
   togglePinComment
 } from '../services/pulseDb';
-import { db, doc, deleteDoc, updateDoc, increment } from '../firebase';
+import { db, doc, deleteDoc, updateDoc, increment } from '../backend';
 import { X, Send, Heart, Pin, Trash2, CornerDownRight, Flag, Reply } from 'lucide-react';
 import { VerifiedBadge } from './VerifiedBadge';
 

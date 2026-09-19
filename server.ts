@@ -1,16 +1,14 @@
 import express from 'express';
 import path from 'path';
 import fs from 'fs';
+import crypto from 'crypto';
+import bcrypt from 'bcryptjs';
+import cookieParser from 'cookie-parser';
 import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI } from '@google/genai';
 import Groq from 'groq-sdk';
 import {
-  initializeApp,
-  getApps,
-  getApp
-} from 'firebase/app';
-import {
-  getFirestore,
+  db,
   collection,
   doc,
   getDoc,
@@ -24,19 +22,22 @@ import {
   orderBy,
   limit,
   increment,
-  writeBatch
-} from 'firebase/firestore';
-import configData from './firebase-applet-config.json' with { type: 'json' };
+  writeBatch,
+  readDocument,
+  writeDocument,
+  listDocuments
+} from './serverDb';
 import { AccessToken } from 'livekit-server-sdk';
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
 
 // LiveKit Server Credentials
-const LIVEKIT_URL = process.env.LIVEKIT_URL || 'wss://pulse-hl0tqpe5.livekit.cloud';
-const LIVEKIT_API_KEY = process.env.LIVEKIT_API_KEY || 'APIWdyuKAmWMR7U';
-const LIVEKIT_API_SECRET = process.env.LIVEKIT_API_SECRET || 'WJOLgT7OF6eXXzTzLcjJXe2eiURctiHlg7nk1xCyc7fC';
+const LIVEKIT_URL = process.env.LIVEKIT_URL || '';
+const LIVEKIT_API_KEY = process.env.LIVEKIT_API_KEY || '';
+const LIVEKIT_API_SECRET = process.env.LIVEKIT_API_SECRET || '';
 
+app.use(cookieParser());
 app.use(express.json({ limit: '150mb' }));
 app.use(express.urlencoded({ extended: true, limit: '150mb' }));
 
@@ -47,23 +48,10 @@ if (!fs.existsSync(uploadsDir)) {
 }
 app.use('/uploads', express.static(uploadsDir));
 
-// Firebase initialization for server-side management
-const firebaseConfig = {
-  apiKey: configData.apiKey,
-  authDomain: configData.authDomain,
-  projectId: configData.projectId,
-  storageBucket: configData.storageBucket,
-  messagingSenderId: configData.messagingSenderId,
-  appId: configData.appId
-};
-
-const serverFirebaseApp = !getApps().some(a => a.name === 'server') ? initializeApp(firebaseConfig, 'server') : getApp('server');
-const db = getFirestore(serverFirebaseApp, configData.firestoreDatabaseId);
-
 // -------------------------------------------------------------
 // TELEGRAM BOT CONFIGURATION & CONTROLLER
 // -------------------------------------------------------------
-const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '8991376058:AAEMmxkwfs-pjwG1T8vHW8Nc2nNoXx_0ywA';
+const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '';
 const TELEGRAM_ADMIN_HANDLE = process.env.TELEGRAM_ADMIN_HANDLE || '@nova_tech_1';
 // Numeric Telegram chat/user id of the platform owner. This is what actually
 // gates admin commands — Telegram usernames are optional and can be unset,
@@ -161,6 +149,74 @@ function parseVideoId(input: string) {
   }
   return clean;
 }
+
+// -------------------------------------------------------------
+// PULSE BACKEND API (server-owned persistence and sessions)
+// -------------------------------------------------------------
+function publicUser(user: any) {
+  if (!user) return null;
+  const { passwordHash, ...safe } = user;
+  return safe;
+}
+function sessionUser(req: express.Request) {
+  const sessionId = req.cookies?.pulse_session;
+  if (!sessionId) return null;
+  const session = readDocument(['sessions', sessionId]);
+  if (!session || Number(session.expiresAt || 0) < Date.now()) return null;
+  return readDocument(['users', session.uid]);
+}
+function issueSession(res: express.Response, uid: string) {
+  const sessionId = crypto.randomUUID();
+  writeDocument(['sessions', sessionId], { uid, expiresAt: Date.now() + 1000 * 60 * 60 * 24 * 30 });
+  res.cookie('pulse_session', sessionId, { httpOnly: true, sameSite: 'lax', secure: process.env.NODE_ENV === 'production', maxAge: 1000 * 60 * 60 * 24 * 30 });
+}
+app.get('/api/auth/me', (req, res) => res.json({ user: publicUser(sessionUser(req)) }));
+app.post('/api/auth/signup', async (req, res) => {
+  try {
+    const email = String(req.body?.email || '').trim().toLowerCase();
+    const password = String(req.body?.password || '');
+    if (!email || password.length < 6) return res.status(400).json({ error: 'Email and a password of at least 6 characters are required.' });
+    const existing = listDocuments(['users']).find((row: any) => String(row.data?.email || '').toLowerCase() === email);
+    if (existing) return res.status(409).json({ error: 'An account with this email already exists.' });
+    const uid = crypto.randomUUID();
+    const username = email.split('@')[0].replace(/[^a-z0-9_]/gi, '').slice(0, 24) || `user_${uid.slice(0, 6)}`;
+    const user = { uid, email, username, handle: `@${username}`, displayName: username, createdAt: Date.now(), passwordHash: await bcrypt.hash(password, 10), isAnonymous: false };
+    writeDocument(['users', uid], user);
+    issueSession(res, uid);
+    res.json({ user: publicUser(user) });
+  } catch (error: any) { res.status(500).json({ error: error.message || 'Unable to create account.' }); }
+});
+app.post('/api/auth/signin', async (req, res) => {
+  const email = String(req.body?.email || '').trim().toLowerCase();
+  const password = String(req.body?.password || '');
+  const row = listDocuments(['users']).find((item: any) => String(item.data?.email || '').toLowerCase() === email);
+  if (!row || !row.data?.passwordHash || !(await bcrypt.compare(password, row.data.passwordHash))) return res.status(401).json({ error: 'Incorrect email or password.' });
+  issueSession(res, row.id); res.json({ user: publicUser(row.data) });
+});
+app.post('/api/auth/anonymous', (req, res) => {
+  const uid = `guest_${crypto.randomUUID()}`;
+  const user = { uid, username: 'guest', handle: '@guest', displayName: 'Guest', createdAt: Date.now(), isAnonymous: true };
+  writeDocument(['users', uid], user); issueSession(res, uid); res.json({ user });
+});
+app.post('/api/auth/signout', (req, res) => { const sessionId = req.cookies?.pulse_session; if (sessionId) writeDocument(['sessions', sessionId], {}, 'delete'); res.clearCookie('pulse_session'); res.json({ success: true }); });
+app.patch('/api/auth/profile', (req, res) => { const user = sessionUser(req); if (!user) return res.status(401).json({ error: 'Not signed in.' }); writeDocument(['users', user.uid], req.body || {}, 'update'); res.json({ user: publicUser(readDocument(['users', user.uid])) }); });
+app.post('/api/db/query', (req, res) => {
+  const pathParts = Array.isArray(req.body?.path) ? req.body.path : [];
+  const rows = listDocuments(pathParts, Array.isArray(req.body?.constraints) ? req.body.constraints : []);
+  res.json({ docs: rows.map((row: any) => ({ id: row.id, exists: true, data: row.data })), size: rows.length, empty: rows.length === 0 });
+});
+app.post('/api/db/doc', async (req, res) => {
+  const pathParts = Array.isArray(req.body?.path) ? req.body.path : [];
+  if (req.body && Object.prototype.hasOwnProperty.call(req.body, 'data')) {
+    const id = crypto.randomUUID();
+    await writeDocument([...pathParts, id], req.body.data || {});
+    return res.json({ id });
+  }
+  const data = readDocument(pathParts);
+  res.json({ id: pathParts[pathParts.length - 1], exists: !!data, data: data || null });
+});
+app.put('/api/db/doc', async (req, res) => { const pathParts = Array.isArray(req.body?.path) ? req.body.path : []; await writeDocument(pathParts, req.body?.data || {}, req.body?.mode === 'update' ? 'update' : 'set'); res.json({ success: true }); });
+app.delete('/api/db/doc', async (req, res) => { const pathParts = Array.isArray(req.body?.path) ? req.body.path : []; await writeDocument(pathParts, {}, 'delete'); res.json({ success: true }); });
 
 // -------------------------------------------------------------
 // TELEGRAM BOT COMMAND HANDLER

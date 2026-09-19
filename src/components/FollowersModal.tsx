@@ -6,7 +6,7 @@ import {
   toggleFollowUser, 
   checkIsFollowing 
 } from '../services/pulseDb';
-import { db, collection, getDocs, doc, getDoc } from '../firebase';
+import { db, collection, getDocs, doc, getDoc } from '../backend';
 import { ArrowLeft, UserCheck, UserPlus, Users, Check, XCircle, Search } from 'lucide-react';
 import { VerifiedBadge } from './VerifiedBadge';
 
