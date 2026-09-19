@@ -113,6 +113,11 @@ export const ChatPage: React.FC<ChatPageProps> = ({
   const [showGifPicker, setShowGifPicker] = useState(false);
   const [pickerTab, setPickerTab] = useState<'gifs' | 'stickers'>('gifs');
 
+  // AI chat state
+  const isAIChat = recipient?.uid === 'pulse_ai';
+  const [aiTyping, setAiTyping] = useState(false);
+  const aiHistoryRef = useRef<{ role: string; content: string }[]>([]);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -276,6 +281,50 @@ export const ChatPage: React.FC<ChatPageProps> = ({
       );
       // Success: the live subscription will remove this placeholder once the
       // real doc (matching clientId) arrives. No extra action needed here.
+
+      // If chatting with Pulse AI, get a response from the Groq-powered AI
+      if (isAIChat && !outgoingMedia) {
+        setAiTyping(true);
+        aiHistoryRef.current.push({ role: 'user', content: outgoingText });
+        try {
+          const aiRes = await fetch('/api/ai/chat', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              message: outgoingText,
+              history: aiHistoryRef.current.slice(-10),
+              userName: currentUser.username
+            })
+          });
+          const aiData = await aiRes.json();
+          const aiReply = aiData.reply || aiData.error || 'Sorry, I could not process that.';
+          aiHistoryRef.current.push({ role: 'assistant', content: aiReply });
+
+          // Save AI response as a chat message from the AI bot
+          const aiProfile: UserProfile = {
+            uid: 'pulse_ai',
+            handle: '@pulse_ai',
+            username: 'Pulse AI',
+            photoURL: 'https://api.dicebear.com/7.x/bottts/svg?seed=pulseai',
+            email: '',
+            bio: 'Pulse AI Assistant',
+            followers: 0,
+            following: 0,
+            likesReceived: 0,
+            createdAt: Date.now(),
+            emailVerified: true,
+            verified: false
+          } as any;
+          await sendChatMessage(chatId, aiProfile, aiReply, currentUser.uid, undefined, {
+            mediaType: 'text',
+            clientId: `ai-${Date.now()}`
+          });
+        } catch (aiErr) {
+          onToast('AI is having trouble responding — try again');
+        } finally {
+          setAiTyping(false);
+        }
+      }
     } catch (err: any) {
       onToast('Failed to send message: ' + (err.message || 'Error'));
       setOptimisticMessages(prev => prev.map(m => m.clientId === clientId ? { ...m, pending: false, failed: true } : m));
@@ -520,9 +569,12 @@ export const ChatPage: React.FC<ChatPageProps> = ({
             <div className="min-w-0">
               <div className="flex items-center gap-1">
                 <span className="font-bold truncate max-w-[110px] sm:max-w-[160px]" style={{ fontSize: 13, color: 'var(--text)' }}>{displayUsername}</span>
+                {isAIChat && <span className="text-[8px] font-black px-1.5 py-0.5 rounded-full bg-[#25f4ee]/20 text-[#25f4ee]">AI</span>}
                 {isVerified && <VerifiedBadge size="xs" />}
               </div>
-              {recipientIsTyping ? (
+              {aiTyping ? (
+                <span className="font-medium leading-none block mt-0.5 animate-pulse" style={{ fontSize: 9.5, color: '#25f4ee' }}>AI is thinking...</span>
+              ) : recipientIsTyping ? (
                 <span className="font-medium leading-none block mt-0.5 animate-pulse" style={{ fontSize: 9.5, color: 'var(--green)' }}>typing...</span>
               ) : recipientIsOnline ? (
                 <span className="font-medium leading-none block mt-0.5" style={{ fontSize: 9.5, color: 'var(--green)' }}>Active now</span>
@@ -537,7 +589,8 @@ export const ChatPage: React.FC<ChatPageProps> = ({
 
         {/* Action buttons: Voice Call, Video Call, Search, Settings */}
         <div className="flex items-center gap-0.5 shrink-0">
-          {/* Voice Call Button */}
+          {/* Voice Call Button — hidden for AI chat */}
+          {!isAIChat && (
           <button
             type="button"
             onClick={() => handleInitiateCall('voice')}
@@ -547,8 +600,10 @@ export const ChatPage: React.FC<ChatPageProps> = ({
           >
             <Phone className="w-[16px] h-[16px]" />
           </button>
+          )}
 
-          {/* Video Call Button */}
+          {/* Video Call Button — hidden for AI chat */}
+          {!isAIChat && (
           <button
             type="button"
             onClick={() => handleInitiateCall('video')}
@@ -558,6 +613,7 @@ export const ChatPage: React.FC<ChatPageProps> = ({
           >
             <Video className="w-[16px] h-[16px]" />
           </button>
+          )}
 
           <button
             onClick={() => setIsSearching(prev => !prev)}

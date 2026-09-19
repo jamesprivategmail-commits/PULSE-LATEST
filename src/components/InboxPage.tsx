@@ -263,6 +263,35 @@ export const InboxPage: React.FC<InboxPageProps> = ({
       {/* CHATS TAB */}
       {tab === 'chats' && (
         <div className="flex-1 overflow-y-auto">
+          {/* Pulse AI Assistant — pinned at top */}
+          <div
+            onClick={() => onOpenChat?.({
+              uid: 'pulse_ai',
+              handle: '@pulse_ai',
+              username: 'Pulse AI',
+              avatar: 'https://api.dicebear.com/7.x/bottts/svg?seed=pulseai'
+            })}
+            className="px-conversation"
+            style={{ borderBottom: '1px solid var(--line)' }}
+          >
+            <div className="px-conversation-avatar-wrap">
+              <div className="px-conversation-avatar flex items-center justify-center" style={{ background: 'linear-gradient(135deg, #25f4ee, #a06cff)' }}>
+                <Sparkles className="w-6 h-6 text-white" />
+              </div>
+            </div>
+            <div className="px-conversation-main">
+              <div className="px-conversation-top">
+                <span className="px-conversation-name flex items-center gap-1">
+                  Pulse AI <span className="text-[9px] font-black px-1.5 py-0.5 rounded-full bg-[#25f4ee]/20 text-[#25f4ee]">AI</span>
+                </span>
+                <span className="px-conversation-time">⚡️</span>
+              </div>
+              <div className="px-conversation-bottom">
+                <span className="px-conversation-message" style={{ color: 'var(--muted)' }}>Ask me anything — powered by Groq</span>
+              </div>
+            </div>
+          </div>
+
           {chatThreads.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-16 text-center px-6">
               <div className="w-14 h-14 rounded-full flex items-center justify-center mb-3" style={{ background: 'var(--surface)', border: '1px solid var(--line)', color: 'var(--muted)' }}>

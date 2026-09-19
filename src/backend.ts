@@ -37,7 +37,7 @@ export function arrayUnion(...values: any[]) { return { __op: 'arrayUnion', valu
 export function arrayRemove(...values: any[]) { return { __op: 'arrayRemove', values }; }
 export const db = { __pulseBackend: true };
 function refPayload(ref: Ref) { return { path: ref.path || ref.collection?.path, constraints: ref.constraints || [] }; }
-export async function getDoc(ref: Ref) { return request('/db/doc', { method: 'POST', body: JSON.stringify(refPayload(ref)) }); }
+export async function getDoc(ref: Ref) { const result = await request('/db/doc', { method: 'POST', body: JSON.stringify(refPayload(ref)) }); return { id: result.id, exists: () => result.exists !== false, data: () => result.data }; }
 export async function getDocs(ref: Ref) { const result = await request('/db/query', { method: 'POST', body: JSON.stringify(refPayload(ref)) }); const docs = (result.docs || []).map((item: any) => ({ ...item, exists: () => item.exists !== false, data: () => item.data })); return { ...result, docs, forEach: (fn: (doc: any) => void) => docs.forEach(fn) }; }
 export async function setDoc(ref: Ref, data: AnyRecord, options?: { merge?: boolean }) { await request('/db/doc', { method: 'PUT', body: JSON.stringify({ ...refPayload(ref), data, mode: options?.merge ? 'update' : 'set' }) }); }
 export async function updateDoc(ref: Ref, data: AnyRecord) { await request('/db/doc', { method: 'PUT', body: JSON.stringify({ ...refPayload(ref), data, mode: 'update' }) }); }

@@ -707,25 +707,25 @@ const VideoSlideComponent: React.FC<VideoSlideProps> = ({
             <button
               onClick={handleFollow}
               disabled={followPending}
-              className={`absolute -bottom-1 left-1/2 -translate-x-1/2 w-3.5 h-3.5 rounded-full flex items-center justify-center text-[9px] font-black border border-black cursor-pointer shadow-sm transition-all disabled:opacity-60 ${
-                isFollowing ? 'bg-neutral-800 text-white' : 'bg-[#ff2b54] text-white hover:scale-110'
+              className={`absolute -bottom-2 left-1/2 -translate-x-1/2 w-6 h-6 rounded-full flex items-center justify-center text-[12px] font-black border-2 border-black cursor-pointer shadow-sm transition-all disabled:opacity-60 ${
+                isFollowing ? 'bg-neutral-700 text-white' : 'bg-[#ff2b54] text-white hover:scale-110'
               }`}
             >
-              {isFollowing ? <Check className="w-2 h-2" /> : '+'}
+              {isFollowing ? <Check className="w-3.5 h-3.5" /> : '+'}
             </button>
           )}
         </div>
 
         {/* Like Action */}
-        <div onClick={handleLike} className="flex flex-col items-center gap-0.5 cursor-pointer group">
-          <div className="w-6 h-6 rounded-full flex items-center justify-center transition-transform active:scale-125">
+        <div onClick={handleLike} className="flex flex-col items-center gap-1 cursor-pointer group">
+          <div className="w-11 h-11 rounded-full flex items-center justify-center transition-transform active:scale-125">
             <Heart
-              className={`w-5 h-5 drop-shadow-md transition-colors ${
+              className={`w-8 h-8 drop-shadow-md transition-colors ${
                 liked ? 'fill-[#ff2b54] text-[#ff2b54]' : 'text-white group-hover:scale-110'
               }`}
             />
           </div>
-          <span className="text-white text-[9.5px] font-bold drop-shadow">
+          <span className="text-white text-[11px] font-bold drop-shadow">
             {formatCount(likeCount)}
           </span>
         </div>
@@ -739,50 +739,50 @@ const VideoSlideComponent: React.FC<VideoSlideProps> = ({
             }
             onOpenComments(video);
           }}
-          className="flex flex-col items-center gap-0.5 cursor-pointer group"
+          className="flex flex-col items-center gap-1 cursor-pointer group"
         >
-          <div className="w-6 h-6 rounded-full flex items-center justify-center transition-transform active:scale-125">
-            <MessageCircle className="w-5 h-5 text-white drop-shadow-md group-hover:scale-110" />
+          <div className="w-11 h-11 rounded-full flex items-center justify-center transition-transform active:scale-125">
+            <MessageCircle className="w-8 h-8 text-white drop-shadow-md group-hover:scale-110" />
           </div>
-          <span className="text-white text-[9.5px] font-bold drop-shadow">
+          <span className="text-white text-[11px] font-bold drop-shadow">
             {formatCount(video.commentCount)}
           </span>
         </div>
 
         {/* Bookmark / Save Action */}
-        <div onClick={handleSave} className="flex flex-col items-center gap-0.5 cursor-pointer group">
-          <div className="w-6 h-6 rounded-full flex items-center justify-center transition-transform active:scale-125">
+        <div onClick={handleSave} className="flex flex-col items-center gap-1 cursor-pointer group">
+          <div className="w-11 h-11 rounded-full flex items-center justify-center transition-transform active:scale-125">
             <Bookmark
-              className={`w-4.5 h-4.5 drop-shadow-md transition-colors ${
+              className={`w-7 h-7 drop-shadow-md transition-colors ${
                 saved ? 'fill-[#ffd54a] text-[#ffd54a]' : 'text-white group-hover:scale-110'
               }`}
             />
           </div>
-          <span className="text-white text-[9.5px] font-bold drop-shadow">
+          <span className="text-white text-[11px] font-bold drop-shadow">
             {formatCount(saveCount)}
           </span>
         </div>
 
         {/* Repost Action */}
-        <div onClick={handleRepost} className="flex flex-col items-center gap-0.5 cursor-pointer group">
-          <div className="w-6 h-6 rounded-full flex items-center justify-center transition-transform active:scale-125">
+        <div onClick={handleRepost} className="flex flex-col items-center gap-1 cursor-pointer group">
+          <div className="w-11 h-11 rounded-full flex items-center justify-center transition-transform active:scale-125">
             <Repeat
-              className={`w-4.5 h-4.5 drop-shadow-md transition-colors ${
+              className={`w-7 h-7 drop-shadow-md transition-colors ${
                 reposted ? 'text-[#25f4ee] scale-110' : 'text-white group-hover:scale-110'
               }`}
             />
           </div>
-          <span className="text-white text-[9.5px] font-bold drop-shadow">
+          <span className="text-white text-[11px] font-bold drop-shadow">
             {formatCount(repostCount)}
           </span>
         </div>
 
         {/* Share Action */}
-        <div onClick={handleShareClick} className="flex flex-col items-center gap-0.5 cursor-pointer group">
-          <div className="w-6 h-6 rounded-full flex items-center justify-center transition-transform active:scale-125">
-            <Share2 className="w-4.5 h-4.5 text-white drop-shadow-md group-hover:scale-110" />
+        <div onClick={handleShareClick} className="flex flex-col items-center gap-1 cursor-pointer group">
+          <div className="w-11 h-11 rounded-full flex items-center justify-center transition-transform active:scale-125">
+            <Share2 className="w-7 h-7 text-white drop-shadow-md group-hover:scale-110" />
           </div>
-          <span className="text-white text-[9.5px] font-bold drop-shadow">
+          <span className="text-white text-[11px] font-bold drop-shadow">
             {formatCount(video.shareCount || 18)}
           </span>
         </div>
@@ -796,12 +796,12 @@ const VideoSlideComponent: React.FC<VideoSlideProps> = ({
             }
             setShowGiftPicker(true);
           }}
-          className="flex flex-col items-center gap-0.5 cursor-pointer group"
+          className="flex flex-col items-center gap-1 cursor-pointer group"
         >
-          <div className="w-6 h-6 rounded-full bg-gradient-to-r from-yellow-400 to-amber-500 flex items-center justify-center transition-transform active:scale-125 shadow-md">
-            <Gift className="w-3.5 h-3.5 text-black" />
+          <div className="w-11 h-11 rounded-full bg-gradient-to-r from-yellow-400 to-amber-500 flex items-center justify-center transition-transform active:scale-125 shadow-md">
+            <Gift className="w-6 h-6 text-black" />
           </div>
-          <span className="text-yellow-400 text-[9px] font-bold drop-shadow">
+          <span className="text-yellow-400 text-[10px] font-bold drop-shadow">
             Tip
           </span>
         </div>

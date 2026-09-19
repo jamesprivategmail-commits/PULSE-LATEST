@@ -214,10 +214,10 @@ export const PostCard: React.FC<PostCardProps> = ({
             <button
               onClick={handleFollow}
               disabled={followPending}
-              className={`h-7 px-3 rounded-lg text-[12px] font-semibold active:scale-95 transition-all disabled:opacity-60 ${
+              className={`h-9 px-4 rounded-full text-[13px] font-bold active:scale-95 transition-all disabled:opacity-60 ${
                 isFollowing
-                  ? 'text-neutral-400 hover:bg-white/[0.06]'
-                  : 'text-[#25f4ee] hover:bg-[#25f4ee]/10'
+                  ? 'text-neutral-400 bg-white/[0.06] hover:bg-white/[0.1]'
+                  : 'text-black bg-[#25f4ee] hover:bg-[#1ed4d6]'
               }`}
             >
               {isFollowing ? 'Following' : 'Follow'}
@@ -277,42 +277,42 @@ export const PostCard: React.FC<PostCardProps> = ({
 
       {/* Content */}
       <div className="px-3.5 pt-1.5">
-        <div className="flex items-center gap-0.5 -ml-2">
+        <div className="flex items-center gap-1 -ml-1">
           <button
             onClick={handleLike}
-            className={`w-10 h-10 rounded-full flex items-center justify-center transition-transform active:scale-75 ${
+            className={`w-12 h-12 rounded-full flex items-center justify-center transition-transform active:scale-75 ${
               liked ? 'text-[#ff5361]' : 'text-white hover:text-neutral-300'
             }`}
           >
-            <Heart className="w-[26px] h-[26px]" strokeWidth={liked ? 0 : 1.8} fill={liked ? 'currentColor' : 'none'} />
+            <Heart className="w-[30px] h-[30px]" strokeWidth={liked ? 0 : 1.8} fill={liked ? 'currentColor' : 'none'} />
           </button>
           <button
             onClick={() => onOpenComments(video)}
-            className="w-10 h-10 rounded-full flex items-center justify-center text-white active:scale-75 transition-transform"
+            className="w-12 h-12 rounded-full flex items-center justify-center text-white active:scale-75 transition-transform"
           >
-            <MessageCircle className="w-[24px] h-[24px]" strokeWidth={1.8} />
+            <MessageCircle className="w-[28px] h-[28px]" strokeWidth={1.8} />
           </button>
           <button
             onClick={handleRepost}
-            className={`w-10 h-10 rounded-full flex items-center justify-center transition-transform active:scale-75 ${
+            className={`w-12 h-12 rounded-full flex items-center justify-center transition-transform active:scale-75 ${
               reposted ? 'text-[#36d781]' : 'text-white'
             }`}
           >
-            <Repeat className="w-[24px] h-[24px]" strokeWidth={1.8} />
+            <Repeat className="w-[28px] h-[28px]" strokeWidth={1.8} />
           </button>
           <button
             onClick={() => onOpenShare?.(video)}
-            className="w-10 h-10 rounded-full flex items-center justify-center text-white active:scale-75 transition-transform"
+            className="w-12 h-12 rounded-full flex items-center justify-center text-white active:scale-75 transition-transform"
           >
-            <Share2 className="w-[22px] h-[22px]" strokeWidth={1.8} />
+            <Share2 className="w-[26px] h-[26px]" strokeWidth={1.8} />
           </button>
           <button
             onClick={handleSave}
-            className={`w-10 h-10 rounded-full flex items-center justify-center ml-auto transition-transform active:scale-75 ${
+            className={`w-12 h-12 rounded-full flex items-center justify-center ml-auto transition-transform active:scale-75 ${
               saved ? 'text-[#ffbd1a]' : 'text-white'
             }`}
           >
-            <Bookmark className="w-[22px] h-[22px]" strokeWidth={1.8} fill={saved ? 'currentColor' : 'none'} />
+            <Bookmark className="w-[26px] h-[26px]" strokeWidth={1.8} fill={saved ? 'currentColor' : 'none'} />
           </button>
         </div>
 

@@ -311,11 +311,11 @@ export const OtherProfilePage: React.FC<OtherProfilePageProps> = ({
         </div>
 
         {/* Action Buttons: Follow | Message */}
-        <div className="flex items-center justify-center gap-1.5 mt-1.5 w-full max-w-[280px]">
+        <div className="flex items-center justify-center gap-2 mt-1.5 w-full max-w-[320px]">
           <button
             onClick={handleToggleFollow}
             disabled={followPending}
-            className={`flex-1 h-7.5 px-3 text-xs font-semibold rounded-full transition-colors cursor-pointer flex items-center justify-center gap-1 shadow-xs disabled:opacity-60 ${
+            className={`flex-1 h-10 px-3 text-[13px] font-bold rounded-full transition-colors cursor-pointer flex items-center justify-center gap-1.5 shadow-xs disabled:opacity-60 ${
               isFollowing
                 ? 'bg-neutral-800 text-white border border-white/10 hover:bg-neutral-700'
                 : isRequested
@@ -325,15 +325,15 @@ export const OtherProfilePage: React.FC<OtherProfilePageProps> = ({
           >
             {isFollowing ? (
               <>
-                <Check className="w-3 h-3 stroke-[2.5]" /> Following
+                <Check className="w-4 h-4 stroke-[2.5]" /> Following
               </>
             ) : isRequested ? (
               <>
-                <Clock className="w-3 h-3 stroke-[2.5]" /> Requested
+                <Clock className="w-4 h-4 stroke-[2.5]" /> Requested
               </>
             ) : (
               <>
-                <UserPlus className="w-3 h-3 stroke-[2.5]" /> Follow
+                <UserPlus className="w-4 h-4 stroke-[2.5]" /> Follow
               </>
             )}
           </button>
@@ -352,9 +352,9 @@ export const OtherProfilePage: React.FC<OtherProfilePageProps> = ({
                 verified: profile?.verified
               });
             }}
-            className="flex-1 h-7.5 px-3 bg-neutral-800 hover:bg-neutral-700 text-white font-semibold rounded-full text-xs transition-colors cursor-pointer flex items-center justify-center gap-1 border border-white/10"
+            className="flex-1 h-10 px-3 bg-neutral-800 hover:bg-neutral-700 text-white font-bold rounded-full text-[13px] transition-colors cursor-pointer flex items-center justify-center gap-1.5 border border-white/10"
           >
-            <MessageSquare className="w-3 h-3 text-neutral-300" /> Message
+            <MessageSquare className="w-4 h-4 text-neutral-300" /> Message
           </button>
 
           {/* Quick Voice Call Button */}
@@ -374,10 +374,10 @@ export const OtherProfilePage: React.FC<OtherProfilePageProps> = ({
                 }, 'voice');
               }
             }}
-            className="w-7.5 h-7.5 bg-neutral-800 hover:bg-[#25f4ee] hover:text-black text-neutral-300 rounded-full flex items-center justify-center text-xs transition-colors cursor-pointer border border-white/10 shrink-0"
+            className="w-10 h-10 bg-neutral-800 hover:bg-[#25f4ee] hover:text-black text-neutral-300 rounded-full flex items-center justify-center transition-colors cursor-pointer border border-white/10 shrink-0"
             title="Voice Call"
           >
-            <Phone className="w-3 h-3" />
+            <Phone className="w-4 h-4" />
           </button>
 
           {/* Quick Video Call Button */}
@@ -397,10 +397,10 @@ export const OtherProfilePage: React.FC<OtherProfilePageProps> = ({
                 }, 'video');
               }
             }}
-            className="w-7.5 h-7.5 bg-neutral-800 hover:bg-[#ff2b54] text-neutral-300 rounded-full flex items-center justify-center text-xs transition-colors cursor-pointer border border-white/10 shrink-0"
+            className="w-10 h-10 bg-neutral-800 hover:bg-[#ff2b54] text-neutral-300 rounded-full flex items-center justify-center transition-colors cursor-pointer border border-white/10 shrink-0"
             title="Video Call"
           >
-            <Video className="w-3 h-3" />
+            <Video className="w-4 h-4" />
           </button>
 
           {/* Quick Tip / Gift Creator Button */}
@@ -413,10 +413,10 @@ export const OtherProfilePage: React.FC<OtherProfilePageProps> = ({
               }
               setShowGiftPicker(true);
             }}
-            className="w-7.5 h-7.5 bg-gradient-to-r from-yellow-400 to-amber-500 hover:opacity-90 text-black rounded-full flex items-center justify-center text-xs transition-transform cursor-pointer active:scale-90 shadow-md shrink-0"
+            className="w-10 h-10 bg-gradient-to-r from-yellow-400 to-amber-500 hover:opacity-90 text-black rounded-full flex items-center justify-center transition-transform cursor-pointer active:scale-90 shadow-md shrink-0"
             title="Send Gift / Tip"
           >
-            <Gift className="w-3.5 h-3.5" />
+            <Gift className="w-5 h-5" />
           </button>
         </div>
 

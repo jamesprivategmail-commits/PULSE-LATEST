@@ -3,7 +3,6 @@ import {
   auth,
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
-  signInAnonymously,
   applyActionCode,
   updateProfile,
   reload,
@@ -194,27 +193,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess, onToast, onClos
     }
   };
 
-  const handleGuest = async () => {
-    setErrorMessage('');
-    setLoading(true);
-    try {
-      const result = await signInAnonymously(auth);
-      const profile = await getOrCreateUserProfile({
-        uid: result.user.uid,
-        email: result.user.email,
-        displayName: result.user.displayName || 'Guest',
-        photoURL: result.user.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${result.user.uid}`,
-        emailVerified: false
-      });
-      onToast('Browsing as guest 🎈');
-      onSuccess(profile);
-    } catch (err: any) {
-      setErrorMessage(err.message || 'Unable to continue as guest.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
   return (
     <div className="fixed inset-0 z-50 bg-black text-white flex flex-col max-w-[480px] mx-auto overflow-hidden select-none">
       {/* Close button */}
@@ -323,22 +301,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess, onToast, onClos
               )}
             </button>
           </form>
-
-          {/* Divider */}
-          <div className="flex items-center gap-3 my-6 text-[13px] text-[#71767b]">
-            <div className="h-px bg-[#2f3336] flex-1" />
-            <span>or</span>
-            <div className="h-px bg-[#2f3336] flex-1" />
-          </div>
-
-          {/* Guest button — same big style */}
-          <button
-            onClick={handleGuest}
-            disabled={loading}
-            className="w-full h-[52px] rounded-full bg-transparent border border-white/25 text-white font-bold text-[15px] flex items-center justify-center hover:bg-white/[0.06] transition-colors active:scale-[.985] disabled:opacity-65"
-          >
-            Continue as guest
-          </button>
 
           {/* Toggle login / signup */}
           <p className="mt-7 text-[14px] leading-5 text-[#71767b]">

@@ -1845,6 +1845,82 @@ app.post('/api/groq/suggest-tags', handleSuggestTags);
 app.post('/api/gemini/suggest-tags', handleSuggestTags);
 app.post('/api/ai/suggest-tags', handleSuggestTags);
 
+// AI Chat Assistant (Powered by Groq) — conversational AI helper for users
+app.post('/api/ai/chat', async (req, res) => {
+  try {
+    const { message, history, userName } = req.body;
+    if (!message || !String(message).trim()) {
+      return res.status(400).json({ error: 'Message is required.' });
+    }
+
+    const groq = getGroqClient();
+    if (!groq) {
+      return res.json({
+        success: true,
+        reply: "Hi! I'm Pulse AI ⚡️ I'm not fully connected yet — please add a Groq API key in the Secrets panel to enable my full capabilities. For now, I can help you navigate the app!",
+        provider: 'fallback'
+      });
+    }
+
+    const systemPrompt = `You are Pulse AI, a friendly, energetic assistant built into the Pulse vertical video social platform. You help creators with:
+- Using the app (posting videos, going live, messaging, stories, etc.)
+- Growing their audience and engagement tips
+- Content ideas and viral strategies
+- Understanding features (gifts, wallet, playlists, duets, etc.)
+- General questions and casual conversation
+
+Keep responses concise, energetic, and helpful. Use emojis naturally. You're speaking with ${userName || 'a Pulse creator'}.`;
+
+    const messages = [
+      { role: 'system', content: systemPrompt },
+      ...(Array.isArray(history) ? history.slice(-10).map((h: any) => ({
+        role: h.role === 'assistant' ? 'assistant' : 'user',
+        content: String(h.content || '')
+      })) : []),
+      { role: 'user', content: String(message).trim() }
+    ];
+
+    try {
+      const completion = await groq.chat.completions.create({
+        model: 'openai/gpt-oss-120b',
+        messages,
+        temperature: 0.8,
+        max_tokens: 500
+      });
+
+      const reply = completion.choices[0]?.message?.content?.trim() || '';
+      if (reply) {
+        return res.json({ success: true, reply, provider: 'groq' });
+      }
+    } catch (groqErr: any) {
+      console.warn('Groq chat primary model failed, trying fallback:', groqErr?.message);
+      try {
+        const fallback = await groq.chat.completions.create({
+          model: 'openai/gpt-oss-20b',
+          messages,
+          temperature: 0.8,
+          max_tokens: 400
+        });
+        const reply = fallback.choices[0]?.message?.content?.trim() || '';
+        if (reply) {
+          return res.json({ success: true, reply, provider: 'groq' });
+        }
+      } catch (e: any) {
+        console.warn('Groq chat fallback also failed:', e?.message);
+      }
+    }
+
+    return res.json({
+      success: true,
+      reply: "I'm having trouble connecting right now ⚡️ Please try again in a moment!",
+      provider: 'fallback'
+    });
+  } catch (err: any) {
+    console.error('AI chat error:', err);
+    res.status(500).json({ error: err.message || 'AI chat failed.' });
+  }
+});
+
 // Telegram Appeal Notification API (Triggered when user submits appeal on web app)
 app.post('/api/telegram/appeal', async (req, res) => {
   try {
