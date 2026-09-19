@@ -1,0 +1,245 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ------------------------------------------------------------------
+    // Helpers
+    // ------------------------------------------------------------------
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    function isOwner(uid) {
+      return isSignedIn() && request.auth.uid == uid;
+    }
+    // True if this write only touches the given field names (used to let
+    // OTHER signed-in users bump a narrow set of counters on a document
+    // they don't own — e.g. someone else's `followers` count when you
+    // follow them — without opening the whole document to them).
+    function onlyAffects(keys) {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(keys);
+    }
+
+    // ------------------------------------------------------------------
+    // User ban appeals — anyone signed in may file one for themselves;
+    // nobody can read someone else's or edit/delete after filing.
+    // ------------------------------------------------------------------
+    match /appeals/{appealId} {
+      allow create: if isSignedIn() && request.resource.data.uid == request.auth.uid;
+      allow read: if isSignedIn() && resource.data.uid == request.auth.uid;
+      allow update, delete: if false;
+    }
+
+    // ------------------------------------------------------------------
+    // Public user profiles.
+    // Profile itself: only the owner can create/edit it, EXCEPT the
+    // `followers` counter, which legitimately gets bumped by whoever
+    // just followed/unfollowed this user from their own client.
+    // Everything under a user (likedVideos, blockedUids-adjacent private
+    // lists, drafts, watch history, sessions, settings, reposts, etc.) is
+    // private to that user — nobody else can read or write it.
+    // ------------------------------------------------------------------
+    match /users/{uid} {
+      allow read: if true;
+      allow create: if isOwner(uid);
+      allow update: if isOwner(uid) || (isSignedIn() && onlyAffects(['followers']));
+      allow delete: if false;
+
+      match /{subCollection}/{docId} {
+        allow read, write: if isOwner(uid);
+      }
+    }
+
+    // ------------------------------------------------------------------
+    // Videos: public read, owner-only create/edit/delete, but engagement
+    // counters (likes/comments/shares/saves/reposts/views) can be bumped
+    // by any signed-in user since those actions come from other people.
+    // ------------------------------------------------------------------
+    match /videos/{videoId} {
+      allow read: if true;
+      allow create: if isSignedIn() && request.resource.data.ownerUid == request.auth.uid;
+      allow update: if (isSignedIn() && resource.data.ownerUid == request.auth.uid)
+        || (isSignedIn() && onlyAffects(['likeCount', 'commentCount', 'shareCount', 'saveCount', 'repostCount', 'views']));
+      allow delete: if isSignedIn() && resource.data.ownerUid == request.auth.uid;
+
+      // A like doc's id is the liking user's own uid — only they can
+      // create/remove their own like.
+      match /likes/{uid} {
+        allow read: if true;
+        allow write: if isOwner(uid);
+      }
+
+      match /comments/{commentId} {
+        allow read: if true;
+        allow create: if isSignedIn() && request.resource.data.uid == request.auth.uid;
+        // The comment's author, or the video's owner, may remove a comment.
+        allow update: if isSignedIn() && resource.data.uid == request.auth.uid;
+        allow delete: if isSignedIn()
+          && (resource.data.uid == request.auth.uid
+              || get(/databases/$(database)/documents/videos/$(videoId)).data.ownerUid == request.auth.uid);
+      }
+    }
+
+    // ------------------------------------------------------------------
+    // Follower / following relationship docs.
+    // Path is /follows/{ownerUid}/{following|followers}/{otherUid}.
+    // For a "following" edge, ownerUid is the person acting (must be
+    // them). For a "followers" edge on someone ELSE's doc, the doc id
+    // (otherUid) is the person acting. Only those two parties may ever
+    // write a relationship doc, and only for themselves.
+    // ------------------------------------------------------------------
+    match /follows/{ownerUid}/{subCollection}/{otherUid} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn() && (request.auth.uid == ownerUid || request.auth.uid == otherUid);
+    }
+
+    // ------------------------------------------------------------------
+    // Notifications: strictly private to the recipient. Any signed-in
+    // user may create a notification FOR someone else (that's how a
+    // follow/like/comment notification gets delivered), but only the
+    // recipient can read, mark-read, or delete their own notifications.
+    // ------------------------------------------------------------------
+    match /notifications/{uid}/items/{notifId} {
+      allow read, update, delete: if isOwner(uid);
+      allow create: if isSignedIn();
+    }
+
+    // ------------------------------------------------------------------
+    // 1-on-1 chats. Chat ids are `${uid1}_${uid2}` (sorted), so the two
+    // participants can be derived straight from the id with no extra
+    // lookup doc.
+    // ------------------------------------------------------------------
+    match /chats/{chatId} {
+      allow read, write: if isSignedIn() && request.auth.uid in chatId.split('_');
+
+      match /messages/{messageId} {
+        allow read: if isSignedIn() && request.auth.uid in chatId.split('_');
+        allow create: if isSignedIn() && request.auth.uid in chatId.split('_')
+          && request.resource.data.senderUid == request.auth.uid;
+        allow update, delete: if isSignedIn() && resource.data.senderUid == request.auth.uid;
+      }
+    }
+
+    // ------------------------------------------------------------------
+    // Stories: public read while live, owner-only write. Views subcollection
+    // records who watched — the viewer writes their own view receipt.
+    // ------------------------------------------------------------------
+    match /stories/{storyId} {
+      allow read: if true;
+      allow create: if isSignedIn() && request.resource.data.ownerUid == request.auth.uid;
+      allow update, delete: if isSignedIn() && resource.data.ownerUid == request.auth.uid;
+
+      match /views/{viewerUid} {
+        allow read: if isSignedIn() && get(/databases/$(database)/documents/stories/$(storyId)).data.ownerUid == request.auth.uid;
+        allow write: if isOwner(viewerUid);
+      }
+    }
+
+    match /highlights/{highlightId} {
+      allow read: if true;
+      allow create: if isSignedIn() && request.resource.data.ownerUid == request.auth.uid;
+      allow update, delete: if isSignedIn() && resource.data.ownerUid == request.auth.uid;
+    }
+
+    // ------------------------------------------------------------------
+    // Group chats: membership-gated. `memberUids` is set at creation and
+    // only changes through explicit add/remove-member flows, so members
+    // are trusted to manage that list; only actual members can read.
+    // ------------------------------------------------------------------
+    match /groups/{groupId} {
+      allow read: if isSignedIn() && request.auth.uid in resource.data.memberUids;
+      allow create: if isSignedIn() && request.auth.uid in request.resource.data.memberUids;
+      allow update: if isSignedIn() && request.auth.uid in resource.data.memberUids;
+      allow delete: if false;
+
+      match /messages/{messageId} {
+        allow read: if isSignedIn() && request.auth.uid in get(/databases/$(database)/documents/groups/$(groupId)).data.memberUids;
+        allow create: if isSignedIn()
+          && request.auth.uid in get(/databases/$(database)/documents/groups/$(groupId)).data.memberUids
+          && request.resource.data.senderUid == request.auth.uid;
+        allow update, delete: if isSignedIn() && resource.data.senderUid == request.auth.uid;
+      }
+    }
+
+    // Scheduled posts are private drafts — owner only.
+    match /scheduled_posts/{postId} {
+      allow read: if isSignedIn() && resource.data.ownerUid == request.auth.uid;
+      allow create: if isSignedIn() && request.resource.data.ownerUid == request.auth.uid;
+      allow update, delete: if isSignedIn() && resource.data.ownerUid == request.auth.uid;
+    }
+
+    // ------------------------------------------------------------------
+    // Live streams: public read, host-only lifecycle control, but viewer
+    // counts / hearts / gifts get bumped by any signed-in viewer.
+    // ------------------------------------------------------------------
+    match /livestreams/{streamId} {
+      allow read: if true;
+      allow create: if isSignedIn() && request.resource.data.hostUid == request.auth.uid;
+      allow update: if (isSignedIn() && resource.data.hostUid == request.auth.uid)
+        || (isSignedIn() && onlyAffects(['viewerCount', 'heartsCount', 'totalGiftsCount']));
+      allow delete: if isSignedIn() && resource.data.hostUid == request.auth.uid;
+
+      match /chat/{chatMsgId} {
+        allow read: if true;
+        allow create: if isSignedIn() && request.resource.data.uid == request.auth.uid;
+        allow update, delete: if isSignedIn() && resource.data.uid == request.auth.uid;
+      }
+    }
+
+    match /livereplays/{replayId} {
+      allow read: if true;
+      allow create: if isSignedIn() && request.resource.data.hostUid == request.auth.uid;
+      allow update, delete: if isSignedIn() && resource.data.hostUid == request.auth.uid;
+    }
+
+    // ------------------------------------------------------------------
+    // Reports: write-only from the reporter's point of view. Nobody can
+    // read someone else's report, and a submitted report can't be edited
+    // or deleted by the reporter (status changes belong to moderation
+    // tooling, not the general client — see note below).
+    // ------------------------------------------------------------------
+    match /reports/{reportId} {
+      allow create: if isSignedIn() && request.resource.data.reporterUid == request.auth.uid;
+      allow read: if isSignedIn() && resource.data.reporterUid == request.auth.uid;
+      allow update, delete: if false;
+    }
+
+    // Follow requests (private-account gating): the sender creates it,
+    // either party can read it, and only the recipient accepts/declines
+    // (a delete), while the sender may cancel their own pending request.
+    match /user_relationships/{docId} {
+      allow read: if isSignedIn() && (resource.data.fromUid == request.auth.uid || resource.data.toUid == request.auth.uid);
+      allow create: if isSignedIn() && request.resource.data.fromUid == request.auth.uid;
+      allow update, delete: if isSignedIn() && (resource.data.fromUid == request.auth.uid || resource.data.toUid == request.auth.uid);
+    }
+
+    // Playlists & sounds: sounds are shared public assets; playlists are
+    // owned by the user who made them.
+    match /playlists/{playlistId} {
+      allow read: if true;
+      allow create: if isSignedIn() && request.resource.data.ownerUid == request.auth.uid;
+      allow update, delete: if isSignedIn() && resource.data.ownerUid == request.auth.uid;
+    }
+
+    match /sounds/{soundId} {
+      allow read: if true;
+      allow write: if false; // system-seeded catalog, not user-editable
+    }
+
+    // Announcements & system config: readable by anyone, writable by
+    // nobody from the client (these are maintained out-of-band).
+    match /announcements/{announcementId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    match /system/{docId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    // No catch-all. Anything not explicitly matched above is denied by
+    // Firestore's default-deny behavior — intentionally, so a new
+    // collection added later doesn't silently inherit `allow read,
+    // write: if true` the way the old catch-all rule did.
+  }
+}

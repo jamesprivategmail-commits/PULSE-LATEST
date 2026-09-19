@@ -1,0 +1,11 @@
+{
+  "name": "FINAL ",
+  "description": "A vertical video social platform with real authentication, video feeds, user profiles, interactive comments, and real-time chat.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
