@@ -16,7 +16,7 @@ import {
   signOut
 } from '../backend';
 import { getOrCreateUserProfile, updateUserProfile } from '../services/pulseDb';
-import { APP_LOGO_URL } from '../constants/branding';
+import { APP_LOGO_URL, APP_NAME } from '../constants/branding';
 import { UserProfile } from '../types';
 import confetti from 'canvas-confetti';
 import { 
@@ -647,7 +647,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess, onToast, onClos
   return (
     <div id="authRoot" className="fixed inset-0 z-50 bg-[#050506] text-white flex flex-col justify-between max-w-[480px] mx-auto overflow-hidden animate-in fade-in select-none">
       {/* Top Brand & Navigation Bar */}
-      <div className="pt-4 px-5 shrink-0">
+      <div className={`${screen === 'login' ? 'hidden' : ''} pt-4 px-5 shrink-0`}>
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2.5">
             <div className="w-8 h-8 rounded-xl bg-black border border-white/20 flex items-center justify-center p-1 shadow-lg overflow-hidden">
@@ -1168,117 +1168,37 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess, onToast, onClos
 
       {/* Screen: Log In Form */}
       {screen === 'login' && (
-        <div className="flex-1 flex flex-col justify-center items-center px-5 py-3 overflow-y-auto w-full max-w-[290px] mx-auto">
-          <div className="mb-3 text-center w-full">
-            <h2 className="text-sm font-extrabold text-white">Welcome Back</h2>
-            <p className="text-neutral-400 text-[10px] mt-0.5">Log in with your email and password</p>
-          </div>
-
-          <form onSubmit={handleLogIn} className="flex flex-col gap-2 w-full">
-            <div>
-              <label className="block text-[9.5px] font-semibold text-neutral-400 mb-1">Email</label>
-              <input
-                id="liEmail"
-                type="email"
-                value={liEmail}
-                onChange={(e) => setLiEmail(e.target.value)}
-                placeholder="you@domain.com"
-                required
-                className="w-full bg-neutral-900 border border-white/10 rounded-lg px-2.5 py-1.5 text-white placeholder:text-neutral-600 focus:outline-none focus:border-[#ffbd1a] transition-colors text-xs"
-              />
+        <div className="flex-1 flex flex-col justify-center px-[22px] py-10 overflow-y-auto w-full">
+          <div className="w-full max-w-[390px] mx-auto">
+            <button type="button" onClick={() => { setErrorMessage(''); setScreen('welcome'); }} className="mb-7 text-xs text-neutral-500 hover:text-white">← Back</button>
+            <div className="w-14 h-14 mb-9 overflow-hidden rounded-[14px] bg-[#111] border border-white/10 shadow-xl">
+              <img src={APP_LOGO_URL} alt={`${APP_NAME} logo`} className="w-full h-full object-cover" />
             </div>
+            <h1 className="text-[36px] sm:text-[42px] leading-[1.08] tracking-[-1.8px] font-extrabold mb-8">Sign in to {APP_NAME}</h1>
 
-            <div className="relative">
-              <div className="flex items-center justify-between mb-1">
-                <label className="text-[9.5px] font-semibold text-neutral-400">Password</label>
-                <button
-                  id="openForgot"
-                  type="button"
-                  onClick={() => {
-                    setForgotEmail(liEmail);
-                    setScreen('forgot');
-                  }}
-                  className="text-[9.5px] text-[#ffbd1a] hover:underline cursor-pointer font-semibold"
-                >
-                  Forgot?
-                </button>
-              </div>
+            <form onSubmit={handleLogIn} className="flex flex-col gap-3">
+              <input id="liEmail" type="email" value={liEmail} onChange={(e) => setLiEmail(e.target.value)} placeholder="Email address" required autoFocus className="w-full h-[52px] rounded-full bg-[#111113] border border-white/[.12] px-5 text-sm text-white placeholder:text-[#71767b] focus:outline-none focus:border-[#ffbd1a]" />
               <div className="relative">
-                <input
-                  id="liPassword"
-                  type={showLiPassword ? 'text' : 'password'}
-                  value={liPassword}
-                  onChange={(e) => setLiPassword(e.target.value)}
-                  placeholder="••••••••"
-                  required
-                  className="w-full bg-neutral-900 border border-white/10 rounded-lg px-2.5 py-1.5 pr-7 text-white placeholder:text-neutral-600 focus:outline-none focus:border-[#ffbd1a] transition-colors text-xs"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowLiPassword(!showLiPassword)}
-                  className="absolute right-2 top-2 text-neutral-400 hover:text-white cursor-pointer"
-                >
-                  {showLiPassword ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
-                </button>
+                <input id="liPassword" type={showLiPassword ? 'text' : 'password'} value={liPassword} onChange={(e) => setLiPassword(e.target.value)} placeholder="Password" required className="w-full h-[52px] rounded-full bg-[#111113] border border-white/[.12] px-5 pr-12 text-sm text-white placeholder:text-[#71767b] focus:outline-none focus:border-[#ffbd1a]" />
+                <button type="button" onClick={() => setShowLiPassword(!showLiPassword)} className="absolute right-4 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-white">{showLiPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}</button>
               </div>
-            </div>
+              <button type="button" onClick={() => { setForgotEmail(liEmail); setScreen('forgot'); }} className="self-end text-xs text-[#a8adb1] hover:text-white">Forgot password?</button>
 
-            {errorMessage && (
-              <div id="liError" className="text-[#ff2b54] text-[10px] font-medium bg-[#ff2b54]/10 p-1.5 rounded-lg border border-[#ff2b54]/20 space-y-1">
-                <div className="flex items-start gap-1">
-                  <AlertTriangle className="w-3 h-3 shrink-0 mt-0.5" />
-                  <span>{errorMessage}</span>
-                </div>
-              </div>
-            )}
+              {errorMessage && <div id="liError" className="text-[#ff5361] text-xs bg-[#ff5361]/10 px-4 py-3 rounded-2xl border border-[#ff5361]/20 flex items-start gap-2"><AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" /><span>{errorMessage}</span></div>}
 
-            <button
-              id="liSubmit"
-              type="submit"
-              disabled={loading}
-              className="mt-0.5 w-full py-1.5 px-3 bg-white hover:bg-[#dedee2] text-black font-bold rounded-full transition-all shadow-sm cursor-pointer disabled:opacity-50 flex items-center justify-center gap-1 text-xs active:scale-95"
-            >
-              {loading ? (
-                <div className="w-3 h-3 border-2 border-black border-t-transparent rounded-full animate-spin" />
-              ) : (
-                'Log in'
-              )}
+              <button id="liSubmit" type="submit" disabled={loading} className="w-full h-[52px] rounded-full bg-white hover:bg-[#e6e6e6] text-[#0f1419] font-bold text-[15px] flex items-center justify-center transition-transform active:scale-[.985] disabled:opacity-65">
+                {loading ? <div className="w-[18px] h-[18px] border-2 border-black/20 border-t-black rounded-full animate-spin" /> : 'Log in'}
+              </button>
+            </form>
+
+            <div className="flex items-center gap-3 my-6 text-[13px] text-[#71767b]"><div className="h-px bg-[#2f3336] flex-1" /><span>or</span><div className="h-px bg-[#2f3336] flex-1" /></div>
+            <button id="liGoogle" onClick={handleGoogleSignIn} disabled={loading} className="w-full h-[52px] rounded-full bg-white hover:bg-[#e6e6e6] text-[#0f1419] font-bold text-[15px] flex items-center justify-center gap-2 relative disabled:opacity-65">
+              <svg viewBox="0 0 48 48" width="20" height="20"><path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3c-1.6 4.6-6 8-11.3 8-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.1 8 3l6-6C34 5.1 29.3 3 24 3 12.4 3 3 12.4 3 24s9.4 21 21 21 21-9.4 21-21c0-1.4-.1-2.5-.4-3.5z"/><path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.6 15.6 18.9 13 24 13c3.1 0 5.8 1.1 8 3l6-6C34 5.1 29.3 3 24 3 16.3 3 9.6 7.3 6.3 14.7z"/><path fill="#4CAF50" d="M24 45c5.2 0 9.9-2 13.4-5.2l-6.2-5.2c-2 1.4-4.5 2.3-7.2 2.3-5.3 0-9.7-3.4-11.3-8.1l-6.5 5C9.5 40.5 16.2 45 24 45z"/><path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.3-2.2 4.2-4.1 5.6l6.2 5.2C40.9 35.9 45 30.5 45 24c0-1.4-.1-2.5-1.4-3.5z"/></svg>
+              <span>Continue with Google</span>
             </button>
-          </form>
-
-          <div className="my-1.5 flex items-center gap-2 w-full max-w-[240px]">
-            <div className="flex-1 h-px bg-white/10" />
-            <span className="text-[8.5px] text-neutral-500 font-semibold uppercase tracking-wider">Or</span>
-            <div className="flex-1 h-px bg-white/10" />
+            <p className="mt-7 text-xs leading-5 text-[#71767b]">Need an account? <button type="button" onClick={() => { setErrorMessage(''); setScreen('step1_email'); }} className="text-[#a8adb1] hover:text-white underline-offset-2 hover:underline">Sign up</button></p>
+            <p className="mt-5 text-xs leading-5 text-[#71767b]">By continuing, you agree to {APP_NAME}'s <a href="#" className="text-[#a8adb1] hover:underline">Terms</a> and <a href="#" className="text-[#a8adb1] hover:underline">Privacy Policy</a>.</p>
           </div>
-
-          <button
-            id="liGoogle"
-            onClick={handleGoogleSignIn}
-            disabled={loading}
-            className="w-full max-w-[240px] py-1.5 px-3 bg-transparent hover:bg-white/[0.06] text-white border border-white/25 font-semibold rounded-full flex items-center justify-center gap-1.5 shadow-sm transition-all cursor-pointer disabled:opacity-50 text-xs active:scale-95"
-          >
-            <svg viewBox="0 0 48 48" width="12" height="12">
-              <path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3c-1.6 4.6-6 8-11.3 8-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.1 8 3l6-6C34 5.1 29.3 3 24 3 12.4 3 3 12.4 3 3 24s9.4 21 21 21 21-9.4 21-21c0-1.4-.1-2.5-.4-3.5z"/>
-              <path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.6 15.6 18.9 13 24 13c3.1 0 5.8 1.1 8 3l6-6C34 5.1 29.3 3 24 3 16.3 3 9.6 7.3 6.3 14.7z"/>
-              <path fill="#4CAF50" d="M24 45c5.2 0 9.9-2 13.4-5.2l-6.2-5.2c-2 1.4-4.5 2.3-7.2 2.3-5.3 0-9.7-3.4-11.3-8.1l-6.5 5C9.5 40.5 16.2 45 24 45z"/>
-              <path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.3-2.2 4.2-4.1 5.6l6.2 5.2C40.9 35.9 45 30.5 45 24c0-1.4-.1-2.5-1.4-3.5z"/>
-            </svg>
-            <span>Continue with Google</span>
-          </button>
-
-          <p className="mt-2.5 text-center text-[10px] text-neutral-400">
-            Need an account?{' '}
-            <span
-              onClick={() => {
-                setErrorMessage('');
-                setScreen('step1_email');
-              }}
-              className="text-[#ffbd1a] font-bold cursor-pointer hover:underline"
-            >
-              Sign up
-            </span>
-          </p>
         </div>
       )}
 
