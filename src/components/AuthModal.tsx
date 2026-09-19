@@ -1,15 +1,9 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   auth,
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
   signInAnonymously,
-  signInWithPopup,
-  googleProvider,
-  sendEmailVerification,
-  sendPasswordResetEmail,
-  verifyPasswordResetCode,
-  confirmPasswordReset,
   applyActionCode,
   updateProfile,
   reload,
@@ -19,23 +13,7 @@ import { getOrCreateUserProfile, updateUserProfile } from '../services/pulseDb';
 import { APP_LOGO_URL, APP_NAME } from '../constants/branding';
 import { UserProfile } from '../types';
 import confetti from 'canvas-confetti';
-import { 
-  Mail, 
-  CheckCircle, 
-  RefreshCw, 
-  ArrowLeft, 
-  Eye, 
-  EyeOff, 
-  ShieldCheck, 
-  Sparkles, 
-  AlertTriangle, 
-  Lock, 
-  User, 
-  AtSign, 
-  ArrowRight,
-  Check,
-  Camera
-} from 'lucide-react';
+import { Eye, EyeOff, AlertTriangle, Mail, Lock, User, AtSign, ArrowRight } from 'lucide-react';
 
 interface AuthModalProps {
   onSuccess: (user: UserProfile) => void;
@@ -43,494 +21,170 @@ interface AuthModalProps {
   onClose?: () => void;
 }
 
-// Wizard Steps for Account Creation
-export type AuthScreen = 
-  | 'welcome' 
-  | 'step1_email' 
-  | 'step2_password' 
-  | 'step3_verify' 
-  | 'step4_name' 
-  | 'login' 
-  | 'forgot' 
-  | 'resetWithCode';
-
 export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess, onToast, onClose }) => {
-  const [screen, setScreen] = useState<AuthScreen>('welcome');
+  const [mode, setMode] = useState<'login' | 'signup'>('login');
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
-  const [unverifiedEmail, setUnverifiedEmail] = useState<string | null>(null);
-  const [localVerificationUrl, setLocalVerificationUrl] = useState('');
-  const [isEmailAlreadyInUse, setIsEmailAlreadyInUse] = useState(false);
-  
-  // Step-by-Step Registration state
-  const [regEmail, setRegEmail] = useState('');
-  const [regPassword, setRegPassword] = useState('');
-  const [regConfirmPassword, setRegConfirmPassword] = useState('');
-  const [showRegPassword, setShowRegPassword] = useState(false);
-  const [showRegConfirmPassword, setShowRegConfirmPassword] = useState(false);
-  
-  // Profile Customization state (Step 4)
-  const [customName, setCustomName] = useState('');
-  const [customHandle, setCustomHandle] = useState('');
-  const [customBio, setCustomBio] = useState('');
-  const [avatarSeed, setAvatarSeed] = useState(Math.random().toString(36).substring(7));
-  const [selectedAvatarUrl, setSelectedAvatarUrl] = useState('');
 
-  // Login state
-  const [liEmail, setLiEmail] = useState('');
-  const [liPassword, setLiPassword] = useState('');
-  const [showLiPassword, setShowLiPassword] = useState(false);
+  // Shared fields
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
 
-  // Forgot password & reset with code
-  const [forgotEmail, setForgotEmail] = useState('');
-  const [resetCode, setResetCode] = useState('');
-  const [newPassword, setNewPassword] = useState('');
-  const [showNewPassword, setShowNewPassword] = useState(false);
-  const [resetEmailAccount, setResetEmailAccount] = useState('');
+  // Signup-only fields
+  const [name, setName] = useState('');
+  const [handle, setHandle] = useState('');
 
-  // Email verification timer & auto-checker
-  const [resendCooldown, setResendCooldown] = useState(0);
-  const autoCheckTimerRef = useRef<any>(null);
-  // Absolute deadline (ms epoch) for the resend cooldown, instead of relying
-  // solely on a chained setTimeout tick. Step 3 is the "check your email"
-  // screen — the user routinely backgrounds the tab/app to open their inbox,
-  // and browsers throttle or fully suspend timers in background tabs, so a
-  // pure tick-based countdown can freeze at some stale number and never
-  // reach 0 when they come back. Storing the deadline lets us recompute the
-  // true remaining time whenever the tab regains focus.
-  const resendDeadlineRef = useRef<number>(0);
-
-  const startResendCooldown = (seconds: number) => {
-    resendDeadlineRef.current = Date.now() + seconds * 1000;
-    setResendCooldown(seconds);
-  };
-
-  // Suggested Avatar choices
-  const avatarOptions = [
-    `https://api.dicebear.com/7.x/avataaars/svg?seed=${avatarSeed}_1`,
-    `https://api.dicebear.com/7.x/avataaars/svg?seed=${avatarSeed}_2`,
-    `https://api.dicebear.com/7.x/avataaars/svg?seed=${avatarSeed}_3`,
-    `https://api.dicebear.com/7.x/bottts/svg?seed=${avatarSeed}_4`,
-    `https://api.dicebear.com/7.x/fun-emoji/svg?seed=${avatarSeed}_5`
-  ];
-
-  useEffect(() => {
-    if (!selectedAvatarUrl && avatarOptions.length > 0) {
-      setSelectedAvatarUrl(avatarOptions[0]);
-    }
-  }, [avatarSeed]);
-
-  // Check URL parameters for Firebase Auth Action Codes
+  // Handle email-verification redirect links (/?mode=verifyEmail&oobCode=...)
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
-    const mode = urlParams.get('mode');
+    const verifyMode = urlParams.get('mode');
     const oobCode = urlParams.get('oobCode');
-
-    if (mode === 'resetPassword' && oobCode) {
-      setResetCode(oobCode);
-      setScreen('resetWithCode');
-      verifyPasswordResetCode(auth, oobCode)
-        .then((email) => {
-          setResetEmailAccount(email);
-        })
-        .catch((err) => {
-          console.warn('Reset code verification:', err);
-        });
-    } else if (mode === 'verifyEmail' && oobCode) {
+    if (verifyMode === 'verifyEmail' && oobCode) {
       applyActionCode(auth, oobCode)
-        .then(() => {
-          onToast('Email verified successfully! Complete your name and profile setup 🎉');
-          if (auth.currentUser) {
-            setRegEmail(auth.currentUser.email || '');
-            setScreen('step4_name');
-          } else {
-            setScreen('login');
-          }
-        })
-        .catch((err) => {
-          onToast('Verification notice: ' + (err.message || 'Link might be expired or already used'));
-          setScreen('login');
-        });
+        .then(() => onToast('Email verified! You can log in now.'))
+        .catch(() => {});
     }
   }, []);
 
-  // Countdown timer for resending email — recomputed from the absolute
-  // deadline (not decremented blindly) so a throttled/suspended background
-  // tab can't leave the number stuck once the tab is foregrounded again.
-  useEffect(() => {
-    if (resendCooldown <= 0) return;
+  const switchMode = (next: 'login' | 'signup') => {
+    setMode(next);
+    setErrorMessage('');
+  };
 
-    const tick = () => {
-      const remaining = Math.max(0, Math.ceil((resendDeadlineRef.current - Date.now()) / 1000));
-      setResendCooldown(remaining);
-    };
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setErrorMessage('');
 
-    const timer = setTimeout(tick, 1000);
-    // Recompute immediately when the tab/app regains focus or visibility —
-    // this is what actually unsticks it after a background-tab throttle.
-    window.addEventListener('focus', tick);
-    document.addEventListener('visibilitychange', tick);
+    if (!email.trim() || !password) {
+      setErrorMessage('Please enter your email and password.');
+      return;
+    }
 
-    return () => {
-      clearTimeout(timer);
-      window.removeEventListener('focus', tick);
-      document.removeEventListener('visibilitychange', tick);
-    };
-  }, [resendCooldown]);
-
-  // Automatic Background Verification Poller when in Step 3
-  useEffect(() => {
-    if (screen === 'step3_verify') {
-      const checkStatus = async () => {
-        if (!auth.currentUser) return;
-        try {
-          await reload(auth.currentUser);
-          if (auth.currentUser.emailVerified) {
-            confetti({ particleCount: 80, spread: 60, origin: { y: 0.6 } });
-            onToast('✅ Email confirmed! Now choose your creator name.');
-            setScreen('step4_name');
-          }
-        } catch (e) {
-          // ignore transient poll errors
+    setLoading(true);
+    try {
+      if (mode === 'signup') {
+        if (password.length < 6) {
+          setErrorMessage('Password must be at least 6 characters.');
+          setLoading(false);
+          return;
         }
-      };
-
-      autoCheckTimerRef.current = setInterval(checkStatus, 3500);
-
-      const handleWindowFocus = () => {
-        checkStatus();
-      };
-      window.addEventListener('focus', handleWindowFocus);
-
-      return () => {
-        if (autoCheckTimerRef.current) clearInterval(autoCheckTimerRef.current);
-        window.removeEventListener('focus', handleWindowFocus);
-      };
-    }
-  }, [screen]);
-
-  // -------------------------------------------------------------
-  // STEP 1: EMAIL VALIDATION
-  // -------------------------------------------------------------
-  const handleStep1Submit = (e: React.FormEvent) => {
-    e.preventDefault();
-    setErrorMessage('');
-    setIsEmailAlreadyInUse(false);
-    
-    const email = regEmail.trim().toLowerCase();
-    if (!email || !email.includes('@') || !email.includes('.')) {
-      setErrorMessage('Please enter a valid, active email address.');
-      return;
-    }
-
-    setScreen('step2_password');
-  };
-
-  // -------------------------------------------------------------
-  // STEP 2: CREATE FIREBASE ACCOUNT & DISPATCH VERIFICATION LINK
-  // -------------------------------------------------------------
-  const handleStep2Submit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setErrorMessage('');
-    setIsEmailAlreadyInUse(false);
-
-    if (!regPassword || regPassword.length < 6) {
-      setErrorMessage('Password must be at least 6 characters long.');
-      return;
-    }
-
-    if (regPassword !== regConfirmPassword) {
-      setErrorMessage('Passwords do not match. Please re-enter your password.');
-      return;
-    }
-
-    setLoading(true);
-    try {
-      const userCred = await createUserWithEmailAndPassword(auth, regEmail.trim(), regPassword);
-      const user = userCred.user;
-
-      const actionCodeSettings = {
-        url: window.location.origin,
-        handleCodeInApp: true
-      };
-
-      let verificationSent = false;
-      try {
-        const verification = await sendEmailVerification(user, actionCodeSettings);
-        setLocalVerificationUrl(verification?.verificationUrl || '');
-        verificationSent = true;
-      } catch (emailErr) {
-        console.warn('Verification delivery notice:', emailErr);
-      }
-
-      await getOrCreateUserProfile({
-        uid: user.uid,
-        email: user.email,
-        displayName: 'New Creator',
-        photoURL: selectedAvatarUrl || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.uid}`,
-        emailVerified: false
-      });
-
-      startResendCooldown(60);
-      setLiEmail(regEmail);
-      onToast(verificationSent ? `Verification link sent to ${regEmail}` : 'Account saved. You can log in now; verify your email later.');
-      
-      setScreen('step3_verify');
-    } catch (err: any) {
-      console.error('Account creation error:', err);
-      if (err.code === 'auth/email-already-in-use') {
-        setIsEmailAlreadyInUse(true);
-        setErrorMessage('An account with this email address already exists.');
-      } else if (err.code === 'auth/invalid-email') {
-        setErrorMessage('The email address is badly formatted.');
-      } else if (err.code === 'auth/weak-password') {
-        setErrorMessage('Password is too weak. Please use at least 6 characters with numbers or symbols.');
-      } else {
-        setErrorMessage(err.message || 'Failed to create account. Please try again.');
-      }
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // -------------------------------------------------------------
-  // STEP 3: CHECK VERIFICATION STATUS
-  // -------------------------------------------------------------
-  const handleCheckEmailVerified = async () => {
-    setLoading(true);
-    setErrorMessage('');
-    try {
-      if (!auth.currentUser) {
-        if (regEmail && regPassword) {
-          const cred = await signInWithEmailAndPassword(auth, regEmail.trim(), regPassword);
-          await reload(cred.user);
-          if (cred.user.emailVerified) {
-            confetti({ particleCount: 100, spread: 70, origin: { y: 0.6 } });
-            setScreen('step4_name');
-            onToast('Email verified! Now input your name & username.');
-            setLoading(false);
-            return;
-          }
+        if (!name.trim() || name.trim().length < 2) {
+          setErrorMessage('Please enter a display name (at least 2 characters).');
+          setLoading(false);
+          return;
         }
-        setErrorMessage('Session expired. Please click "Log in" and we will check your verification status.');
-        setLoading(false);
-        return;
-      }
 
-      await reload(auth.currentUser);
-      if (auth.currentUser.emailVerified) {
-        confetti({ particleCount: 100, spread: 70, origin: { y: 0.6 } });
-        onToast('✅ Email confirmed successfully! Now customize your creator name.');
-        setScreen('step4_name');
-      } else {
-        onToast('⚠️ Not verified yet. Please open your email inbox and click the verification link.');
-      }
-    } catch (err: any) {
-      console.warn('Verification check notice:', err);
-      onToast('Verification check notice: ' + (err.message || 'Please check link in your inbox'));
-    } finally {
-      setLoading(false);
-    }
-  };
+        const userCred = await createUserWithEmailAndPassword(auth, email.trim(), password);
+        const user = userCred.user;
 
-  const handleResendVerification = async () => {
-    if (resendCooldown > 0) return;
-    setLoading(true);
-    try {
-      if (auth.currentUser) {
-        const verification = await sendEmailVerification(auth.currentUser);
-        setLocalVerificationUrl(verification?.verificationUrl || '');
-      } else if (regEmail && regPassword) {
-        const cred = await signInWithEmailAndPassword(auth, regEmail.trim(), regPassword);
-        const verification = await sendEmailVerification(cred.user);
-        setLocalVerificationUrl(verification?.verificationUrl || '');
-      }
-      startResendCooldown(60);
-      onToast(`New verification link sent to ${regEmail || liEmail}`);
-    } catch (err: any) {
-      onToast('Failed to resend: ' + (err.message || 'Please wait a moment'));
-    } finally {
-      setLoading(false);
-    }
-  };
+        let cleanHandle = handle.trim().replace(/^@/, '').toLowerCase();
+        if (!cleanHandle) {
+          cleanHandle = name.trim().toLowerCase().replace(/[^a-z0-9_.]/g, '').slice(0, 20);
+        }
 
-  // -------------------------------------------------------------
-  // STEP 4: CUSTOMIZE NAME, USERNAME & PROFILE
-  // -------------------------------------------------------------
-  const handleStep4Submit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setErrorMessage('');
-    
-    const name = customName.trim();
-    if (!name || name.length < 2) {
-      setErrorMessage('Please enter a display name (at least 2 characters).');
-      return;
-    }
+        const avatar = `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(user.uid)}`;
 
-    let handle = customHandle.trim();
-    if (!handle) {
-      handle = '@' + name.toLowerCase().replace(/[^a-z0-9_.]/g, '').slice(0, 20);
-    }
-    if (!handle.startsWith('@')) {
-      handle = '@' + handle;
-    }
+        await updateProfile(user, { displayName: name.trim(), photoURL: avatar });
+        await updateUserProfile(user.uid, {
+          username: name.trim(),
+          handle: '@' + cleanHandle,
+          photoURL: avatar,
+          emailVerified: true
+        });
 
-    if (handle.length < 3) {
-      setErrorMessage('Username handle must be at least 3 characters.');
-      return;
-    }
-
-    setLoading(true);
-    try {
-      const currentUser = auth.currentUser;
-      if (!currentUser) {
-        setErrorMessage('Session expired. Please log in to complete your profile.');
-        setScreen('login');
-        return;
-      }
-
-      const avatar = selectedAvatarUrl || `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(name)}`;
-
-      // Update Firebase Auth profile
-      await updateProfile(currentUser, {
-        displayName: name,
-        photoURL: avatar
-      });
-
-      // Update Firestore database
-      await updateUserProfile(currentUser.uid, {
-        username: name,
-        handle: handle,
-        bio: customBio.trim(),
-        photoURL: avatar,
-        emailVerified: true
-      });
-
-      const profile = await getOrCreateUserProfile({
-        uid: currentUser.uid,
-        email: currentUser.email,
-        displayName: name,
-        photoURL: avatar,
-        emailVerified: true
-      });
-
-      confetti({ particleCount: 120, spread: 80, origin: { y: 0.5 } });
-      onToast(`Welcome to Pulse, ${name}! 🎉 Your real account is ready.`);
-      onSuccess(profile);
-    } catch (err: any) {
-      console.error('Profile setup error:', err);
-      setErrorMessage(err.message || 'Failed to save profile. Please try again.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // -------------------------------------------------------------
-  // LOGIN FLOW (WITH STRICT EMAIL VERIFICATION CHECK)
-  // -------------------------------------------------------------
-  const handleLogIn = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setErrorMessage('');
-    setIsEmailAlreadyInUse(false);
-    setUnverifiedEmail(null);
-    const email = liEmail.trim();
-    const password = liPassword;
-
-    if (!email || !password) {
-      setErrorMessage('Please enter both email and password.');
-      return;
-    }
-
-    setLoading(true);
-    try {
-      const userCred = await signInWithEmailAndPassword(auth, email, password);
-      const user = userCred.user;
-      
-      try {
-        await Promise.race([
-          reload(user),
-          new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 2500))
-        ]);
-      } catch (reloadErr) {
-        console.warn('User reload notice (proceeding):', reloadErr);
-      }
-
-      // Verification is encouraged but does not block a valid saved account
-      // from signing in. This keeps login usable when email delivery is not
-      // configured while preserving the verification flow for production.
-      if (!user.emailVerified) onToast('Signed in. Please verify your email when the link is available.');
-
-      // Fetch or initialize creator profile
-      let profile: UserProfile;
-      try {
-        profile = await Promise.race([
-          getOrCreateUserProfile({
-            uid: user.uid,
-            email: user.email,
-            displayName: user.displayName,
-            photoURL: user.photoURL,
-            emailVerified: true
-          }),
-          new Promise<UserProfile>((resolve) => 
-            setTimeout(() => resolve({
-              uid: user.uid,
-              email: user.email || email,
-              username: user.displayName || email.split('@')[0],
-              handle: '@' + (user.displayName || email.split('@')[0]).toLowerCase().replace(/[^a-z0-9_.]/g, ''),
-              photoURL: user.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.uid}`,
-              bio: '',
-              followers: 0,
-              following: 0,
-              likesReceived: 0,
-              createdAt: Date.now(),
-              emailVerified: true,
-              verified: false
-            }), 3000)
-          )
-        ]);
-      } catch (profileErr) {
-        console.warn('Profile fetch notice:', profileErr);
-        profile = {
+        const profile = await getOrCreateUserProfile({
           uid: user.uid,
-          email: user.email || email,
-          username: user.displayName || email.split('@')[0],
-          handle: '@' + (user.displayName || email.split('@')[0]).toLowerCase().replace(/[^a-z0-9_.]/g, ''),
-          photoURL: user.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.uid}`,
-          bio: '',
-          followers: 0,
-          following: 0,
-          likesReceived: 0,
-          createdAt: Date.now(),
-          emailVerified: true,
-          verified: false
-        };
-      }
+          email: user.email,
+          displayName: name.trim(),
+          photoURL: avatar,
+          emailVerified: true
+        });
 
-      if (!profile.username || profile.username === 'New Creator' || profile.username === 'Creator') {
-        setRegEmail(email);
-        setScreen('step4_name');
-        onToast('Please enter your creator display name to finish setup!');
-        setLoading(false);
-        return;
+        confetti({ particleCount: 120, spread: 80, origin: { y: 0.5 } });
+        onToast(`Welcome to ${APP_NAME}, ${name.trim()}! 🎉`);
+        onSuccess(profile);
+      } else {
+        const userCred = await signInWithEmailAndPassword(auth, email.trim(), password);
+        const user = userCred.user;
+
+        try {
+          await Promise.race([
+            reload(user),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 2500))
+          ]);
+        } catch {}
+
+        let profile: UserProfile;
+        try {
+          profile = await Promise.race([
+            getOrCreateUserProfile({
+              uid: user.uid,
+              email: user.email,
+              displayName: user.displayName,
+              photoURL: user.photoURL,
+              emailVerified: true
+            }),
+            new Promise<UserProfile>((resolve) =>
+              setTimeout(() => resolve({
+                uid: user.uid,
+                email: user.email || email,
+                username: user.displayName || email.split('@')[0],
+                handle: '@' + (user.displayName || email.split('@')[0]).toLowerCase().replace(/[^a-z0-9_.]/g, ''),
+                photoURL: user.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.uid}`,
+                bio: '',
+                followers: 0,
+                following: 0,
+                likesReceived: 0,
+                createdAt: Date.now(),
+                emailVerified: true,
+                verified: false
+              }), 3000)
+            )
+          ]);
+        } catch {
+          profile = {
+            uid: user.uid,
+            email: user.email || email,
+            username: user.displayName || email.split('@')[0],
+            handle: '@' + (user.displayName || email.split('@')[0]).toLowerCase().replace(/[^a-z0-9_.]/g, ''),
+            photoURL: user.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.uid}`,
+            bio: '',
+            followers: 0,
+            following: 0,
+            likesReceived: 0,
+            createdAt: Date.now(),
+            emailVerified: true,
+            verified: false
+          };
+        }
+
+        if (!profile.username || profile.username === 'New Creator' || profile.username === 'Creator') {
+          // First login without a saved name — switch to signup to capture name
+          setName(email.split('@')[0]);
+          setMode('signup');
+          onToast('Please enter your display name to finish setup!');
+          setLoading(false);
+          return;
+        }
+
+        confetti({ particleCount: 70, spread: 60 });
+        onToast(`Welcome back, ${profile.username}! 🎉`);
+        onSuccess(profile);
       }
-      
-      confetti({ particleCount: 70, spread: 60 });
-      onToast(`Welcome back, ${profile.username}! 🎉`);
-      onSuccess(profile);
     } catch (err: any) {
-      console.error('Log in error:', err);
-
-      let msg = 'Incorrect email or password.';
+      console.error('Auth error:', err);
+      let msg = 'Something went wrong. Please try again.';
       if (err.code === 'auth/invalid-credential' || err.code === 'auth/wrong-password' || err.code === 'auth/user-not-found') {
         msg = 'Incorrect email or password.';
       } else if (err.code === 'auth/invalid-email') {
         msg = 'Please enter a valid email address.';
+      } else if (err.code === 'auth/email-already-in-use') {
+        msg = 'An account with this email already exists. Try logging in.';
+      } else if (err.code === 'auth/weak-password') {
+        msg = 'Password is too weak. Use at least 6 characters.';
       } else if (err.code === 'auth/too-many-requests') {
-        msg = 'Too many failed attempts. Please reset your password or try again in a few minutes.';
-      } else if (err.code === 'auth/operation-not-allowed') {
-        msg = 'Email/Password sign-in is not enabled in Firebase Console.';
-      } else if (err.code === 'auth/network-request-failed') {
-        msg = 'Network connection issue. Please check your internet connection.';
+        msg = 'Too many attempts. Please try again in a few minutes.';
       } else if (err.message) {
         msg = err.message;
       }
@@ -540,707 +194,173 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess, onToast, onClos
     }
   };
 
-  const handleGoogleSignIn = async () => {
+  const handleGuest = async () => {
     setErrorMessage('');
     setLoading(true);
     try {
-      const result = await signInWithPopup(auth, googleProvider);
-      const user = result.user;
+      const result = await signInAnonymously(auth);
       const profile = await getOrCreateUserProfile({
-        uid: user.uid,
-        email: user.email,
-        displayName: user.displayName,
-        photoURL: user.photoURL,
-        emailVerified: true
+        uid: result.user.uid,
+        email: result.user.email,
+        displayName: result.user.displayName || 'Guest',
+        photoURL: result.user.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${result.user.uid}`,
+        emailVerified: false
       });
-      confetti({ particleCount: 60, spread: 60 });
-      onToast(`Signed in with Google as ${profile.username}`);
+      onToast('Browsing as guest 🎈');
       onSuccess(profile);
     } catch (err: any) {
-      if (
-        err?.code === 'auth/popup-closed-by-user' ||
-        err?.code === 'auth/cancelled-popup-request' ||
-        err?.message?.includes('popup-closed-by-user')
-      ) {
-        return;
-      }
-      if (err?.code === 'auth/popup-blocked') {
-        setErrorMessage('Popup was blocked by your browser. Please allow popups to sign in with Google.');
-        return;
-      }
-      console.warn('Google Sign In notice:', err?.message || err);
-      setErrorMessage(err?.message || 'Failed to sign in with Google.');
+      setErrorMessage(err.message || 'Unable to continue as guest.');
     } finally {
       setLoading(false);
-    }
-  };
-
-  const handleSendResetPassword = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!forgotEmail || !forgotEmail.includes('@')) {
-      onToast('Please enter a valid email address.');
-      return;
-    }
-    setLoading(true);
-    try {
-      const actionCodeSettings = {
-        url: window.location.origin,
-        handleCodeInApp: true
-      };
-      await sendPasswordResetEmail(auth, forgotEmail.trim(), actionCodeSettings);
-      onToast(`Password reset link sent to ${forgotEmail}`);
-      setScreen('login');
-    } catch (err: any) {
-      console.error('Password reset email error:', err);
-      try {
-        await sendPasswordResetEmail(auth, forgotEmail.trim());
-        onToast(`Password reset link sent to ${forgotEmail}`);
-        setScreen('login');
-      } catch (fallbackErr: any) {
-        onToast('Error: ' + (fallbackErr.message || 'Could not send reset email'));
-      }
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleConfirmResetWithCode = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const code = resetCode.trim();
-    if (!code) {
-      setErrorMessage('Please provide the reset code from your email link.');
-      return;
-    }
-    if (!newPassword || newPassword.length < 6) {
-      setErrorMessage('New password must be at least 6 characters.');
-      return;
-    }
-    setLoading(true);
-    setErrorMessage('');
-    try {
-      await confirmPasswordReset(auth, code, newPassword);
-      confetti({ particleCount: 70, spread: 60 });
-      onToast('Password reset successfully! You can now log in with your new password.');
-      setLiPassword('');
-      setScreen('login');
-    } catch (err: any) {
-      console.error('Confirm password reset error:', err);
-      setErrorMessage(err.message || 'Invalid or expired reset code. Please request a new link.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const isWizardStep = ['step1_email', 'step2_password', 'step3_verify', 'step4_name'].includes(screen);
-  const getStepNumber = () => {
-    switch (screen) {
-      case 'step1_email': return 1;
-      case 'step2_password': return 2;
-      case 'step3_verify': return 3;
-      case 'step4_name': return 4;
-      default: return 1;
     }
   };
 
   return (
-    <div id="authRoot" className="fixed inset-0 z-50 bg-[#050506] text-white flex flex-col justify-between max-w-[480px] mx-auto overflow-hidden animate-in fade-in select-none">
-      {/* Top Brand & Navigation Bar */}
-      <div className={`${screen === 'login' ? 'hidden' : ''} pt-4 px-5 shrink-0`}>
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-xl bg-black border border-white/20 flex items-center justify-center p-1 shadow-lg overflow-hidden">
-              <img
-                src={APP_LOGO_URL}
-                alt="Pulse Logo"
-                className="w-full h-full object-contain rounded-md"
-                decoding="async"
-              />
-            </div>
-            <span className="font-black text-xl tracking-tighter text-white">
-              Pulse
-            </span>
-          </div>
-
-          <div className="flex items-center gap-2">
-            {screen !== 'welcome' && (
-              <button
-                id="authBackBtn"
-                onClick={() => {
-                  setErrorMessage('');
-                  setIsEmailAlreadyInUse(false);
-                  setUnverifiedEmail(null);
-                  if (screen === 'step2_password') setScreen('step1_email');
-                  else if (screen === 'step3_verify') setScreen('step1_email');
-                  else if (screen === 'step4_name') setScreen('step3_verify');
-                  else setScreen('welcome');
-                }}
-                className="text-neutral-400 hover:text-white px-2.5 py-1 rounded-lg bg-neutral-900 border border-white/10 text-[11px] font-semibold flex items-center gap-1 cursor-pointer transition-colors"
-              >
-                <ArrowLeft className="w-3 h-3" /> Back
-              </button>
-            )}
-            {onClose && screen === 'welcome' && (
-              <button
-                onClick={onClose}
-                className="text-neutral-400 hover:text-white px-2.5 py-1 rounded-lg bg-neutral-900 border border-white/10 text-[11px] font-semibold cursor-pointer transition-colors"
-              >
-                Close
-              </button>
-            )}
-          </div>
-        </div>
-
-        {/* Wizard Step Progress Indicator */}
-        {isWizardStep && (
-          <div className="mt-3 pb-1">
-            <div className="flex items-center justify-between text-[10px] font-bold text-neutral-400 mb-1 px-0.5">
-              <span className={getStepNumber() >= 1 ? 'text-[#ffbd1a]' : ''}>1. Email</span>
-              <span className={getStepNumber() >= 2 ? 'text-[#ffbd1a]' : ''}>2. Password</span>
-              <span className={getStepNumber() >= 3 ? 'text-[#ffbd1a]' : ''}>3. Verify</span>
-              <span className={getStepNumber() >= 4 ? 'text-[#ffbd1a]' : ''}>4. Name</span>
-            </div>
-            <div className="w-full h-1 bg-neutral-900 rounded-full overflow-hidden flex gap-1">
-              <div className={`h-full flex-1 rounded-full transition-all duration-300 ${getStepNumber() >= 1 ? 'bg-[#ffbd1a]' : 'bg-neutral-800'}`} />
-              <div className={`h-full flex-1 rounded-full transition-all duration-300 ${getStepNumber() >= 2 ? 'bg-[#ffbd1a]' : 'bg-neutral-800'}`} />
-              <div className={`h-full flex-1 rounded-full transition-all duration-300 ${getStepNumber() >= 3 ? 'bg-[#ffbd1a]' : 'bg-neutral-800'}`} />
-              <div className={`h-full flex-1 rounded-full transition-all duration-300 ${getStepNumber() >= 4 ? 'bg-[#ffbd1a]' : 'bg-neutral-800'}`} />
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Screen 0: Welcome / Landing */}
-      {screen === 'welcome' && (
-        <div className="flex-1 flex flex-col justify-center items-center px-5 py-3 overflow-y-auto text-center">
-          <div className="w-20 h-20 mb-3 rounded-2xl bg-black border border-white/20 p-2 shadow-2xl flex items-center justify-center">
-            <img
-              src={APP_LOGO_URL}
-              alt="Pulse Logo"
-              className="w-full h-full object-contain rounded-xl"
-              decoding="async"
-            />
-          </div>
-          <div className="max-w-[280px] mx-auto mb-4">
-            <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[9.5px] font-semibold bg-[#ffbd1a]/15 text-[#ffbd1a] border border-[#ffbd1a]/30 mb-2">
-              <Sparkles className="w-2.5 h-2.5" /> 100% Real Community
-            </div>
-            <h1 className="text-lg font-black tracking-tight mb-1 text-white">
-              Real creators. Real videos.
-            </h1>
-            <p className="text-neutral-400 text-[10.5px] leading-relaxed">
-              Every account is verified by email link to ensure authentic creators, verified interactions, and zero spam.
-            </p>
-          </div>
-
-          <div className="w-full max-w-[240px] mx-auto flex flex-col gap-1.5">
-            <button
-              id="goSignup"
-              onClick={() => {
-                setErrorMessage('');
-                setIsEmailAlreadyInUse(false);
-                setUnverifiedEmail(null);
-                setScreen('step1_email');
-              }}
-              className="w-full py-1.5 px-3 bg-white hover:bg-[#dedee2] text-black font-bold rounded-full shadow-sm transition-all active:scale-95 cursor-pointer text-xs flex items-center justify-center gap-1.5"
-            >
-              <span>Create Verified Account</span>
-              <ArrowRight className="w-3 h-3" />
-            </button>
-            <button
-              id="goLogin"
-              onClick={() => {
-                setErrorMessage('');
-                setIsEmailAlreadyInUse(false);
-                setUnverifiedEmail(null);
-                setScreen('login');
-              }}
-              className="w-full py-1.5 px-3 bg-transparent hover:bg-white/[0.06] text-white font-bold rounded-full border border-white/25 transition-all active:scale-95 cursor-pointer text-xs"
-            >
-              Log in with Email
-            </button>
-
-            <div className="my-0.5 flex items-center gap-2">
-              <div className="flex-1 h-px bg-white/10" />
-              <span className="text-[8.5px] text-neutral-500 uppercase tracking-wider font-semibold">Or continue with</span>
-              <div className="flex-1 h-px bg-white/10" />
-            </div>
-
-            <button
-              id="welcomeGoogleBtn"
-              onClick={handleGoogleSignIn}
-              disabled={loading}
-              className="w-full py-1.5 px-3 bg-transparent hover:bg-white/[0.06] text-white border border-white/25 font-semibold rounded-full flex items-center justify-center gap-1.5 shadow-sm transition-all cursor-pointer disabled:opacity-50 text-xs active:scale-95"
-            >
-              <svg viewBox="0 0 48 48" width="12" height="12">
-                <path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3c-1.6 4.6-6 8-11.3 8-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.1 8 3l6-6C34 5.1 29.3 3 24 3 12.4 3 3 12.4 3 24s9.4 21 21 21 21-9.4 21-21c0-1.4-.1-2.5-.4-3.5z"/>
-                <path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.6 15.6 18.9 13 24 13c3.1 0 5.8 1.1 8 3l6-6C34 5.1 29.3 3 24 3 16.3 3 9.6 7.3 6.3 14.7z"/>
-                <path fill="#4CAF50" d="M24 45c5.2 0 9.9-2 13.4-5.2l-6.2-5.2c-2 1.4-4.5 2.3-7.2 2.3-5.3 0-9.7-3.4-11.3-8.1l-6.5 5C9.5 40.5 16.2 45 24 45z"/>
-                <path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.3-2.2 4.2-4.1 5.6l6.2 5.2C40.9 35.9 45 30.5 45 24c0-1.4-.1-2.5-1.4-3.5z"/>
-              </svg>
-              <span>Continue with Google</span>
-            </button>
-          </div>
-        </div>
+    <div className="fixed inset-0 z-50 bg-black text-white flex flex-col max-w-[480px] mx-auto overflow-hidden select-none">
+      {/* Close button */}
+      {onClose && (
+        <button
+          onClick={onClose}
+          className="absolute top-4 right-4 z-10 w-9 h-9 flex items-center justify-center rounded-full bg-white/10 text-neutral-300 hover:text-white hover:bg-white/20 transition-colors"
+          aria-label="Close"
+        >
+          ✕
+        </button>
       )}
 
-      {/* STEP 1: Input Email */}
-      {screen === 'step1_email' && (
-        <div className="flex-1 flex flex-col justify-center items-center px-5 py-3 overflow-y-auto w-full max-w-[290px] mx-auto">
-          <div className="mb-3 text-center w-full">
-            <div className="inline-flex items-center gap-1 text-[9px] font-bold text-[#ffbd1a] uppercase tracking-wider mb-0.5">
-              Step 1 of 4
-            </div>
-            <h2 className="text-sm font-extrabold text-white">What's your email?</h2>
-            <p className="text-neutral-400 text-[10px] mt-0.5 leading-snug">
-              We'll send a secure activation link to verify your identity.
-            </p>
+      <main className="flex-1 flex flex-col items-center justify-center px-6 py-8 overflow-y-auto">
+        <div className="w-full max-w-[390px]">
+          {/* Logo */}
+          <div className="w-14 h-14 mb-9 overflow-hidden rounded-[14px] bg-[#111] border border-white/10 shadow-xl">
+            <img src={APP_LOGO_URL} alt={`${APP_NAME} logo`} className="w-full h-full object-cover" />
           </div>
 
-          <form onSubmit={handleStep1Submit} className="flex flex-col gap-2 w-full">
-            <div>
-              <label className="block text-[9.5px] font-semibold text-neutral-400 mb-1">Email Address</label>
-              <div className="relative">
-                <input
-                  id="regEmailInput"
-                  type="email"
-                  value={regEmail}
-                  onChange={(e) => setRegEmail(e.target.value)}
-                  placeholder="name@example.com"
-                  autoFocus
-                  required
-                  className="w-full bg-neutral-900 border border-white/10 rounded-lg px-2.5 py-1.5 pl-7 text-white placeholder:text-neutral-600 focus:outline-none focus:border-[#ffbd1a] transition-colors text-xs"
-                />
-                <Mail className="w-3 h-3 text-neutral-500 absolute left-2 top-2" />
-              </div>
-            </div>
+          {/* Title */}
+          <h1 className="text-[36px] sm:text-[42px] leading-[1.08] tracking-[-1.8px] font-extrabold mb-8">
+            {mode === 'login' ? `Sign in to ${APP_NAME}` : `Create your ${APP_NAME} account`}
+          </h1>
 
-            {errorMessage && (
-              <div className="text-[#ff2b54] text-[10px] font-medium bg-[#ff2b54]/10 p-1.5 rounded-lg border border-[#ff2b54]/20 flex items-center gap-1">
-                <AlertTriangle className="w-3 h-3 shrink-0" />
-                <span>{errorMessage}</span>
-              </div>
-            )}
-
-            <button
-              id="step1SubmitBtn"
-              type="submit"
-              className="mt-0.5 w-full py-1.5 px-3 bg-white hover:bg-[#dedee2] text-black font-bold rounded-full transition-all shadow-sm cursor-pointer flex items-center justify-center gap-1 text-xs active:scale-95"
-            >
-              <span>Next: Set Password</span>
-              <ArrowRight className="w-3 h-3" />
-            </button>
-          </form>
-
-          <p className="mt-2.5 text-center text-[10px] text-neutral-400">
-            Already have an account?{' '}
-            <span
-              onClick={() => {
-                setErrorMessage('');
-                setScreen('login');
-              }}
-              className="text-[#ffbd1a] font-bold cursor-pointer hover:underline"
-            >
-              Log in
-            </span>
-          </p>
-        </div>
-      )}
-
-      {/* STEP 2: Input Password */}
-      {screen === 'step2_password' && (
-        <div className="flex-1 flex flex-col justify-center items-center px-[22px] py-8 overflow-y-auto w-full max-w-[390px] mx-auto">
-          <div className="mb-7 text-center w-full">
-            <div className="inline-flex items-center gap-1 text-[13px] font-semibold text-[#ffbd1a] uppercase tracking-wider mb-2">Step 2 of 4</div>
-            <h2 className="text-[22px] font-bold tracking-[-.5px] text-white">Create a Password</h2>
-            <div className="flex items-center justify-center gap-2 mt-2">
-              <span className="text-neutral-400 text-sm truncate max-w-[240px]">{regEmail}</span>
-              <button type="button" onClick={() => setScreen('step1_email')} className="text-sm text-[#ffbd1a] hover:underline cursor-pointer font-bold">Change</button>
-            </div>
-          </div>
-
-          <form onSubmit={handleStep2Submit} className="flex flex-col gap-4 w-full">
-            <div className="relative">
-              <label className="block text-sm font-semibold text-neutral-400 mb-2">Password (6+ chars)</label>
-              <div className="relative">
-                <input id="regPasswordInput" type={showRegPassword ? 'text' : 'password'} value={regPassword} onChange={(e) => setRegPassword(e.target.value)} placeholder="••••••••" autoFocus required className="w-full h-[52px] bg-[#151515] border border-white/[.14] rounded-full px-12 text-white placeholder:text-neutral-600 focus:outline-none focus:border-[#ffbd1a] transition-colors text-[17px]" />
-                <Lock className="w-5 h-5 text-neutral-500 absolute left-4 top-4" />
-                <button type="button" onClick={() => setShowRegPassword(!showRegPassword)} className="absolute right-4 top-4 text-neutral-400 hover:text-white cursor-pointer">{showRegPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}</button>
-              </div>
-            </div>
-
-            <div className="relative">
-              <label className="block text-sm font-semibold text-neutral-400 mb-2">Confirm Password</label>
-              <div className="relative">
-                <input id="regConfirmPasswordInput" type={showRegConfirmPassword ? 'text' : 'password'} value={regConfirmPassword} onChange={(e) => setRegConfirmPassword(e.target.value)} placeholder="••••••••" required className="w-full h-[52px] bg-[#151515] border border-white/[.14] rounded-full px-12 text-white placeholder:text-neutral-600 focus:outline-none focus:border-[#ffbd1a] transition-colors text-[17px]" />
-                <ShieldCheck className="w-5 h-5 text-neutral-500 absolute left-4 top-4" />
-                <button type="button" onClick={() => setShowRegConfirmPassword(!showRegConfirmPassword)} className="absolute right-4 top-4 text-neutral-400 hover:text-white cursor-pointer">{showRegConfirmPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}</button>
-              </div>
-            </div>
-
-            {errorMessage && (
-              <div className="text-[#ff5361] text-sm font-medium bg-[#ff5361]/10 px-4 py-3 rounded-full border border-[#ff5361]/20 space-y-1">
-                <div className="flex items-center gap-2"><AlertTriangle className="w-4 h-4 shrink-0" /><span>{errorMessage}</span></div>
-                {isEmailAlreadyInUse && <button type="button" onClick={() => { setLiEmail(regEmail); setScreen('login'); }} className="w-full mt-1 py-2 bg-[#ffbd1a] text-black font-bold rounded-full text-sm hover:bg-[#ffc93f] transition-colors cursor-pointer">Log in instead</button>}
-              </div>
-            )}
-
-            <button id="step2SubmitBtn" type="submit" disabled={loading} className="mt-1 w-full h-[52px] px-4 bg-white hover:bg-[#dedee2] text-black font-semibold rounded-full transition-all shadow-sm cursor-pointer disabled:opacity-50 flex items-center justify-center gap-2 text-[17px] active:scale-[.985]">
-              {loading ? <div className="w-5 h-5 border-2 border-black border-t-transparent rounded-full animate-spin" /> : <><span>Create Account &amp; Send Link</span><ArrowRight className="w-5 h-5" /></>}
-            </button>
-          </form>
-        </div>
-      )}
-
-      {/* STEP 3: Verify Email Link Gate */}
-      {screen === 'step3_verify' && (
-        <div className="flex-1 flex flex-col justify-center items-center px-5 py-3 overflow-y-auto w-full max-w-[290px] mx-auto">
-          <div className="text-center mb-2.5">
-            <div className="w-8 h-8 rounded-lg bg-[#ffbd1a]/15 text-[#ffbd1a] flex items-center justify-center mx-auto mb-1.5 border border-[#ffbd1a]/30 shadow animate-pulse">
-              <Mail className="w-4 h-4" />
-            </div>
-            <div className="inline-flex items-center gap-1 text-[9px] font-bold text-[#ffbd1a] uppercase tracking-wider mb-0.5">
-              Step 3 of 4: Verify Email Link
-            </div>
-            <h2 className="text-sm font-extrabold text-white">Check Your Inbox</h2>
-            <p className="text-neutral-300 text-[10px] mt-0.5">
-              We sent a verification link to:
-            </p>
-            <div className="inline-block mt-1 px-2 py-0.5 bg-neutral-900 border border-white/10 rounded-md text-[10px] font-mono text-[#ffbd1a] truncate max-w-[220px]">
-              {regEmail || liEmail}
-            </div>
-          </div>
-
-          <div className="bg-neutral-900 border border-white/10 rounded-lg p-2 mb-2.5 text-[10px] text-neutral-300 space-y-1 w-full">
-            <div className="flex items-start gap-1.5">
-              <div className="w-3 h-3 rounded-md bg-[#ffbd1a]/20 text-[#ffbd1a] flex items-center justify-center text-[8px] font-black shrink-0 mt-0.5">
-                1
-              </div>
-              <span>Open your email app and find the link from Pulse.</span>
-            </div>
-            <div className="flex items-start gap-1.5">
-              <div className="w-3 h-3 rounded-md bg-[#ffbd1a]/20 text-[#ffbd1a] flex items-center justify-center text-[8px] font-black shrink-0 mt-0.5">
-                2
-              </div>
-              <span>Click the verification link to confirm your account.</span>
-            </div>
-            <div className="flex items-start gap-1.5">
-              <div className="w-3 h-3 rounded-md bg-[#ffbd1a]/20 text-[#ffbd1a] flex items-center justify-center text-[8px] font-black shrink-0 mt-0.5">
-                3
-              </div>
-              <span>Return here to choose your username!</span>
-            </div>
-          </div>
-
-          {localVerificationUrl && (
-            <a href={localVerificationUrl} className="w-full mb-2.5 rounded-lg border border-[#ffbd1a]/30 bg-[#ffbd1a]/10 px-2.5 py-2 text-[10px] font-semibold text-[#ffbd1a] hover:bg-[#ffbd1a]/20 transition-colors">
-              Local test mode: open the verification link
-            </a>
-          )}
-
-          <div className="flex flex-col gap-1.5 w-full">
-            <button
-              id="checkVerifiedBtn"
-              onClick={handleCheckEmailVerified}
-              disabled={loading}
-              className="w-full py-1.5 px-3 bg-[#ffbd1a] hover:bg-[#ffc93f] text-black font-bold rounded-lg shadow-sm transition-all active:scale-95 cursor-pointer flex items-center justify-center gap-1 text-xs"
-            >
-              {loading ? (
-                <div className="w-3 h-3 border-2 border-black border-t-transparent rounded-full animate-spin" />
-              ) : (
-                <>
-                  <RefreshCw className="w-3 h-3" />
-                  <span>I've Verified — Continue</span>
-                </>
-              )}
-            </button>
-
-            <button
-              id="resendVerificationBtn"
-              onClick={handleResendVerification}
-              disabled={loading || resendCooldown > 0}
-              className="w-full py-1.5 px-3 bg-neutral-900 hover:bg-neutral-800 text-neutral-300 font-semibold rounded-lg border border-white/10 transition-all text-[10px] cursor-pointer disabled:opacity-40"
-            >
-              {resendCooldown > 0 ? `Resend in ${resendCooldown}s` : 'Resend link'}
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* STEP 4: Choose Display Name & Username (Only accessible after verification) */}
-      {screen === 'step4_name' && (
-        <div className="flex-1 flex flex-col justify-center items-center px-5 py-3 overflow-y-auto w-full max-w-[290px] mx-auto">
-          <div className="mb-2.5 text-center w-full">
-            <div className="inline-flex items-center gap-1 text-[9px] font-bold text-[#ffbd1a] uppercase tracking-wider mb-0.5">
-              <Check className="w-2.5 h-2.5 text-[#ffbd1a]" /> Email Verified! Step 4 of 4
-            </div>
-            <h2 className="text-sm font-extrabold text-white">Choose Your Name</h2>
-            <p className="text-neutral-400 text-[10px] mt-0.5">
-              Set up your public identity on Pulse.
-            </p>
-          </div>
-
-          <form onSubmit={handleStep4Submit} className="flex flex-col gap-2 w-full">
-            {/* Avatar Picker */}
-            <div>
-              <label className="block text-[9.5px] font-semibold text-neutral-400 mb-1">Profile Picture</label>
-              <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 scrollbar-none justify-center">
-                <label className="w-7 h-7 rounded-lg bg-neutral-900 border border-dashed border-[#ffbd1a]/60 flex flex-col items-center justify-center text-neutral-300 hover:text-white shrink-0 cursor-pointer overflow-hidden transition-all hover:border-[#ffbd1a]">
+          {/* Form */}
+          <form onSubmit={handleSubmit} className="flex flex-col gap-3">
+            {mode === 'signup' && (
+              <>
+                <div className="relative">
+                  <User className="w-5 h-5 text-neutral-500 absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none" />
                   <input
-                    type="file"
-                    accept="image/*"
-                    className="hidden"
-                    onChange={(e) => {
-                      const file = e.target.files?.[0];
-                      if (file) {
-                        const reader = new FileReader();
-                        reader.onloadend = () => {
-                          setSelectedAvatarUrl(reader.result as string);
-                        };
-                        reader.readAsDataURL(file);
-                      }
-                    }}
+                    type="text"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    placeholder="Display name"
+                    autoFocus
+                    className="w-full h-[52px] rounded-full bg-[#111113] border border-white/[.12] pl-12 pr-5 text-[15px] text-white placeholder:text-[#71767b] focus:outline-none focus:border-[#ffbd1a] transition-colors"
                   />
-                  <Camera className="w-2.5 h-2.5 text-[#ffbd1a]" />
-                </label>
+                </div>
+                <div className="relative">
+                  <AtSign className="w-5 h-5 text-neutral-500 absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none" />
+                  <input
+                    type="text"
+                    value={handle}
+                    onChange={(e) => setHandle(e.target.value.replace(/^@/, '').toLowerCase())}
+                    placeholder="@username (optional)"
+                    className="w-full h-[52px] rounded-full bg-[#111113] border border-white/[.12] pl-12 pr-5 text-[15px] text-white placeholder:text-[#71767b] focus:outline-none focus:border-[#ffbd1a] transition-colors"
+                  />
+                </div>
+              </>
+            )}
 
-                {avatarOptions.map((url, idx) => (
-                  <div
-                    key={idx}
-                    onClick={() => setSelectedAvatarUrl(url)}
-                    className={`w-7 h-7 rounded-lg overflow-hidden shrink-0 border cursor-pointer transition-all ${
-                      selectedAvatarUrl === url ? 'border-[#ffbd1a] scale-105 shadow ring-1 ring-[#ffbd1a]/30' : 'border-white/10 opacity-70 hover:opacity-100'
-                    }`}
-                  >
-                    <img src={url} alt="Avatar option" className="w-full h-full object-cover bg-neutral-800" />
-                  </div>
-                ))}
-                <button
-                  type="button"
-                  onClick={() => setAvatarSeed(Math.random().toString(36).substring(7))}
-                  className="w-6 h-6 rounded-lg bg-neutral-900 border border-white/10 flex items-center justify-center text-[10px] text-neutral-400 hover:text-white shrink-0 cursor-pointer"
-                  title="Generate more avatars"
-                >
-                  <RefreshCw className="w-2.5 h-2.5" />
-                </button>
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-[9.5px] font-semibold text-neutral-400 mb-1">Display Name</label>
-              <div className="relative">
-                <input
-                  id="customNameInput"
-                  type="text"
-                  value={customName}
-                  onChange={(e) => {
-                    setCustomName(e.target.value);
-                    if (!customHandle || customHandle === '@' + customName.toLowerCase().replace(/[^a-z0-9_.]/g, '').slice(0, 20)) {
-                      setCustomHandle('@' + e.target.value.toLowerCase().replace(/[^a-z0-9_.]/g, '').slice(0, 20));
-                    }
-                  }}
-                  placeholder="e.g. Alex Rivera"
-                  autoFocus
-                  required
-                  className="w-full bg-neutral-900 border border-white/10 rounded-lg px-2.5 py-1.5 pl-7 text-white placeholder:text-neutral-600 focus:outline-none focus:border-[#ffbd1a] transition-colors text-xs"
-                />
-                <User className="w-3 h-3 text-neutral-500 absolute left-2 top-2" />
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-[9.5px] font-semibold text-neutral-400 mb-1">Username Handle</label>
-              <div className="relative">
-                <input
-                  id="customHandleInput"
-                  type="text"
-                  value={customHandle}
-                  onChange={(e) => {
-                    // Keep the input fully editable. The old implementation
-                    // re-added "@" on every keystroke, so backspace could
-                    // never clear the field and React immediately restored it.
-                    setCustomHandle(e.target.value.replace(/^@+/, '').toLowerCase());
-                  }}
-                  placeholder="@alex_rivera"
-                  required
-                  className="w-full bg-neutral-900 border border-white/10 rounded-lg px-2.5 py-1.5 pl-7 text-white placeholder:text-neutral-600 focus:outline-none focus:border-[#ffbd1a] transition-colors text-xs"
-                />
-                <AtSign className="w-3 h-3 text-neutral-500 absolute left-2 top-2" />
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-[9.5px] font-semibold text-neutral-400 mb-1">Bio (Optional)</label>
+            <div className="relative">
+              <Mail className="w-5 h-5 text-neutral-500 absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none" />
               <input
-                id="customBioInput"
-                type="text"
-                value={customBio}
-                onChange={(e) => setCustomBio(e.target.value)}
-                placeholder="Video creator & storyteller ⚡️"
-                maxLength={100}
-                className="w-full bg-neutral-900 border border-white/10 rounded-lg px-2.5 py-1.5 text-white placeholder:text-neutral-600 focus:outline-none focus:border-[#ffbd1a] transition-colors text-xs"
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="Email address"
+                autoFocus={mode === 'login'}
+                required
+                className="w-full h-[52px] rounded-full bg-[#111113] border border-white/[.12] pl-12 pr-5 text-[15px] text-white placeholder:text-[#71767b] focus:outline-none focus:border-[#ffbd1a] transition-colors"
               />
             </div>
 
+            <div className="relative">
+              <Lock className="w-5 h-5 text-neutral-500 absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none" />
+              <input
+                type={showPassword ? 'text' : 'password'}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="Password"
+                required
+                className="w-full h-[52px] rounded-full bg-[#111113] border border-white/[.12] pl-12 pr-12 text-[15px] text-white placeholder:text-[#71767b] focus:outline-none focus:border-[#ffbd1a] transition-colors"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                className="absolute right-4 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-white"
+              >
+                {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+              </button>
+            </div>
+
             {errorMessage && (
-              <div className="text-[#ff2b54] text-[10px] font-medium bg-[#ff2b54]/10 p-1.5 rounded-lg border border-[#ff2b54]/20 flex items-center gap-1">
-                <AlertTriangle className="w-3 h-3 shrink-0" />
+              <div className="text-[#ff5361] text-[13px] bg-[#ff5361]/10 px-4 py-3 rounded-2xl border border-[#ff5361]/20 flex items-start gap-2">
+                <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
                 <span>{errorMessage}</span>
               </div>
             )}
 
+            {/* Primary button — big, well-designed */}
             <button
-              id="step4SubmitBtn"
               type="submit"
               disabled={loading}
-              className="mt-0.5 w-full py-1.5 px-3 bg-[#ffbd1a] hover:bg-[#ffc93f] text-black font-bold rounded-lg shadow-sm transition-all active:scale-95 cursor-pointer disabled:opacity-50 flex items-center justify-center gap-1 text-xs"
+              className="w-full h-[52px] rounded-full bg-white hover:bg-[#e6e6e6] text-[#0f1419] font-bold text-[15px] flex items-center justify-center gap-2 transition-transform active:scale-[.985] disabled:opacity-65 mt-1"
             >
               {loading ? (
-                <div className="w-3 h-3 border-2 border-black border-t-transparent rounded-full animate-spin" />
+                <span className="w-[18px] h-[18px] border-2 border-black/20 border-t-black rounded-full animate-spin" />
               ) : (
                 <>
-                  <span>Enter Pulse</span>
-                  <Sparkles className="w-3 h-3" />
+                  {mode === 'login' ? 'Log in' : 'Create account'}
+                  <ArrowRight className="w-5 h-5" />
                 </>
               )}
             </button>
           </form>
-        </div>
-      )}
 
-      {/* Screen: Log In Form */}
-      {screen === 'login' && (
-        <div className="flex-1 flex flex-col justify-center px-[22px] py-10 overflow-y-auto w-full">
-          <div className="w-full max-w-[390px] mx-auto">
-            <button type="button" onClick={() => { setErrorMessage(''); setScreen('welcome'); }} className="mb-7 text-xs text-neutral-500 hover:text-white">← Back</button>
-            <div className="w-14 h-14 mb-9 overflow-hidden rounded-[14px] bg-[#111] border border-white/10 shadow-xl">
-              <img src={APP_LOGO_URL} alt={`${APP_NAME} logo`} className="w-full h-full object-cover" />
-            </div>
-            <h1 className="text-[36px] sm:text-[42px] leading-[1.08] tracking-[-1.8px] font-extrabold mb-8">Sign in to {APP_NAME}</h1>
-
-            <form onSubmit={handleLogIn} className="flex flex-col gap-3">
-              <input id="liEmail" type="email" value={liEmail} onChange={(e) => setLiEmail(e.target.value)} placeholder="Email address" required autoFocus className="w-full h-[52px] rounded-full bg-[#111113] border border-white/[.12] px-5 text-sm text-white placeholder:text-[#71767b] focus:outline-none focus:border-[#ffbd1a]" />
-              <div className="relative">
-                <input id="liPassword" type={showLiPassword ? 'text' : 'password'} value={liPassword} onChange={(e) => setLiPassword(e.target.value)} placeholder="Password" required className="w-full h-[52px] rounded-full bg-[#111113] border border-white/[.12] px-5 pr-12 text-sm text-white placeholder:text-[#71767b] focus:outline-none focus:border-[#ffbd1a]" />
-                <button type="button" onClick={() => setShowLiPassword(!showLiPassword)} className="absolute right-4 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-white">{showLiPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}</button>
-              </div>
-              <button type="button" onClick={() => { setForgotEmail(liEmail); setScreen('forgot'); }} className="self-end text-xs text-[#a8adb1] hover:text-white">Forgot password?</button>
-
-              {errorMessage && <div id="liError" className="text-[#ff5361] text-xs bg-[#ff5361]/10 px-4 py-3 rounded-2xl border border-[#ff5361]/20 flex items-start gap-2"><AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" /><span>{errorMessage}</span></div>}
-
-              <button id="liSubmit" type="submit" disabled={loading} className="w-full h-[52px] rounded-full bg-white hover:bg-[#e6e6e6] text-[#0f1419] font-bold text-[15px] flex items-center justify-center transition-transform active:scale-[.985] disabled:opacity-65">
-                {loading ? <div className="w-[18px] h-[18px] border-2 border-black/20 border-t-black rounded-full animate-spin" /> : 'Log in'}
-              </button>
-            </form>
-
-            <div className="flex items-center gap-3 my-6 text-[13px] text-[#71767b]"><div className="h-px bg-[#2f3336] flex-1" /><span>or</span><div className="h-px bg-[#2f3336] flex-1" /></div>
-            <button id="liGoogle" onClick={handleGoogleSignIn} disabled={loading} className="w-full h-[52px] rounded-full bg-white hover:bg-[#e6e6e6] text-[#0f1419] font-bold text-[15px] flex items-center justify-center gap-2 relative disabled:opacity-65">
-              <svg viewBox="0 0 48 48" width="20" height="20"><path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3c-1.6 4.6-6 8-11.3 8-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.1 8 3l6-6C34 5.1 29.3 3 24 3 12.4 3 3 12.4 3 24s9.4 21 21 21 21-9.4 21-21c0-1.4-.1-2.5-.4-3.5z"/><path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.6 15.6 18.9 13 24 13c3.1 0 5.8 1.1 8 3l6-6C34 5.1 29.3 3 24 3 16.3 3 9.6 7.3 6.3 14.7z"/><path fill="#4CAF50" d="M24 45c5.2 0 9.9-2 13.4-5.2l-6.2-5.2c-2 1.4-4.5 2.3-7.2 2.3-5.3 0-9.7-3.4-11.3-8.1l-6.5 5C9.5 40.5 16.2 45 24 45z"/><path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.3-2.2 4.2-4.1 5.6l6.2 5.2C40.9 35.9 45 30.5 45 24c0-1.4-.1-2.5-1.4-3.5z"/></svg>
-              <span>Continue with Google</span>
-            </button>
-            <p className="mt-7 text-xs leading-5 text-[#71767b]">Need an account? <button type="button" onClick={() => { setErrorMessage(''); setScreen('step1_email'); }} className="text-[#a8adb1] hover:text-white underline-offset-2 hover:underline">Sign up</button></p>
-            <p className="mt-5 text-xs leading-5 text-[#71767b]">By continuing, you agree to {APP_NAME}'s <a href="#" className="text-[#a8adb1] hover:underline">Terms</a> and <a href="#" className="text-[#a8adb1] hover:underline">Privacy Policy</a>.</p>
-          </div>
-        </div>
-      )}
-
-      {/* Screen: Forgot Password Request */}
-      {screen === 'forgot' && (
-        <div className="flex-1 flex flex-col justify-center items-center px-5 py-3 overflow-y-auto w-full max-w-[290px] mx-auto">
-          <div className="mb-3 text-center w-full">
-            <h2 className="text-sm font-extrabold text-white">Reset Password</h2>
-            <p className="text-neutral-400 text-[10px] mt-0.5">Enter your email and we'll send a password reset link</p>
+          {/* Divider */}
+          <div className="flex items-center gap-3 my-6 text-[13px] text-[#71767b]">
+            <div className="h-px bg-[#2f3336] flex-1" />
+            <span>or</span>
+            <div className="h-px bg-[#2f3336] flex-1" />
           </div>
 
-          <form onSubmit={handleSendResetPassword} className="flex flex-col gap-2 w-full">
-            <div>
-              <label className="block text-[9.5px] font-semibold text-neutral-400 mb-1">Email Address</label>
-              <input
-                id="forgotEmail"
-                type="email"
-                value={forgotEmail}
-                onChange={(e) => setForgotEmail(e.target.value)}
-                placeholder="you@domain.com"
-                required
-                className="w-full bg-neutral-900 border border-white/10 rounded-lg px-2.5 py-1.5 text-white placeholder:text-neutral-600 focus:outline-none focus:border-[#ffbd1a] transition-colors text-xs"
-              />
-            </div>
+          {/* Guest button — same big style */}
+          <button
+            onClick={handleGuest}
+            disabled={loading}
+            className="w-full h-[52px] rounded-full bg-transparent border border-white/25 text-white font-bold text-[15px] flex items-center justify-center hover:bg-white/[0.06] transition-colors active:scale-[.985] disabled:opacity-65"
+          >
+            Continue as guest
+          </button>
 
-            <button
-              id="sendResetBtn"
-              type="submit"
-              disabled={loading}
-              className="mt-0.5 w-full py-1.5 px-3 bg-white hover:bg-[#dedee2] text-black font-bold rounded-full transition-all shadow-sm cursor-pointer disabled:opacity-50 text-xs active:scale-95"
-            >
-              {loading ? 'Sending link...' : 'Send Reset Link'}
-            </button>
-          </form>
+          {/* Toggle login / signup */}
+          <p className="mt-7 text-[14px] leading-5 text-[#71767b]">
+            {mode === 'login' ? (
+              <>Need an account?{' '}
+                <button type="button" onClick={() => switchMode('signup')} className="text-[#a8adb1] hover:text-white font-semibold underline-offset-2 hover:underline">Sign up</button>
+              </>
+            ) : (
+              <>Already have an account?{' '}
+                <button type="button" onClick={() => switchMode('login')} className="text-[#a8adb1] hover:text-white font-semibold underline-offset-2 hover:underline">Log in</button>
+              </>
+            )}
+          </p>
 
-          <p className="mt-2.5 text-center text-[10px] text-neutral-400">
-            Remember your password?{' '}
-            <span
-              onClick={() => setScreen('login')}
-              className="text-[#ffbd1a] font-bold cursor-pointer hover:underline"
-            >
-              Log in
-            </span>
+          {/* Terms */}
+          <p className="mt-5 text-[12px] leading-5 text-[#71767b]">
+            By continuing, you agree to {APP_NAME}'s{' '}
+            <a href="#" className="text-[#a8adb1] hover:underline">Terms</a> and{' '}
+            <a href="#" className="text-[#a8adb1] hover:underline">Privacy Policy</a>.
           </p>
         </div>
-      )}
-
-      {/* Screen: Reset Password With Code */}
-      {screen === 'resetWithCode' && (
-        <div className="flex-1 flex flex-col justify-center items-center px-5 py-3 overflow-y-auto w-full max-w-[290px] mx-auto">
-          <div className="mb-3 text-center w-full">
-            <h2 className="text-sm font-extrabold text-white">Set New Password</h2>
-            <p className="text-neutral-400 text-[10px] mt-0.5">
-              Enter your new password for {resetEmailAccount || 'your account'}
-            </p>
-          </div>
-
-          <form onSubmit={handleConfirmResetWithCode} className="flex flex-col gap-2 w-full">
-            <div className="relative">
-              <label className="block text-[9.5px] font-semibold text-neutral-400 mb-1">New Password (6+ characters)</label>
-              <div className="relative">
-                <input
-                  type={showNewPassword ? 'text' : 'password'}
-                  value={newPassword}
-                  onChange={(e) => setNewPassword(e.target.value)}
-                  placeholder="••••••••"
-                  required
-                  className="w-full bg-neutral-900 border border-white/10 rounded-lg px-2.5 py-1.5 pr-7 text-white placeholder:text-neutral-600 focus:outline-none focus:border-[#ffbd1a] transition-colors text-xs"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowNewPassword(!showNewPassword)}
-                  className="absolute right-2 top-2 text-neutral-400 hover:text-white cursor-pointer"
-                >
-                  {showNewPassword ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
-                </button>
-              </div>
-            </div>
-
-            {errorMessage && (
-              <div className="text-[#ff2b54] text-[10px] font-medium bg-[#ff2b54]/10 p-1.5 rounded-lg border border-[#ff2b54]/20 flex items-center gap-1">
-                <AlertTriangle className="w-3 h-3 shrink-0" />
-                <span>{errorMessage}</span>
-              </div>
-            )}
-
-            <button
-              type="submit"
-              disabled={loading}
-              className="mt-0.5 w-full py-1.5 px-3 bg-[#ffbd1a] hover:bg-[#ffc93f] text-black font-bold rounded-lg transition-all shadow-sm cursor-pointer disabled:opacity-50 text-xs active:scale-95"
-            >
-              {loading ? 'Saving new password...' : 'Save Password & Log in'}
-            </button>
-          </form>
-        </div>
-      )}
-
-      {/* Footer info */}
-      <div className="px-5 pb-4 text-center text-[9px] text-neutral-500">
-        Secured by Firebase Authentication & Firestore Cloud Database.
-      </div>
+      </main>
     </div>
   );
 };
