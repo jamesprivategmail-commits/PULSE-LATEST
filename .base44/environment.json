@@ -1,0 +1,39 @@
+{
+  "previewPort": 3000,
+  "healthPath": "/",
+  "startCommand": "docker compose -f docker-compose.base44.yml up -d",
+  "secrets": [
+    {
+      "name": "GROQ_API_KEY",
+      "description": "Groq API key for AI caption/hashtag/hook generation. Obtain from https://console.groq.com/keys."
+    },
+    {
+      "name": "GEMINI_API_KEY",
+      "description": "Google Gemini API key for AI features (fallback to Groq). Obtain from https://aistudio.google.com/apikey."
+    },
+    {
+      "name": "TELEGRAM_BOT_TOKEN",
+      "description": "Telegram bot token for the central admin/moderation bot. Obtain from @BotFather."
+    },
+    {
+      "name": "TELEGRAM_ADMIN_CHAT_ID",
+      "description": "Numeric Telegram chat/user ID of the platform owner for admin authorization. Obtain from @userinfobot."
+    },
+    {
+      "name": "LIVEKIT_URL",
+      "description": "LiveKit server URL (wss://...) for real-time live streaming. Obtain from LiveKit dashboard."
+    },
+    {
+      "name": "LIVEKIT_API_KEY",
+      "description": "LiveKit API key for generating access tokens. Obtain from LiveKit dashboard."
+    },
+    {
+      "name": "LIVEKIT_API_SECRET",
+      "description": "LiveKit API secret for generating access tokens. Obtain from LiveKit dashboard."
+    },
+    {
+      "name": "RESEND_API_KEY",
+      "description": "Resend API key for sending email verification links on signup. Obtain from https://resend.com/api-keys."
+    }
+  ]
+}
