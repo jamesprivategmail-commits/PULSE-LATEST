@@ -823,10 +823,10 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess, onToast, onClos
             <button
               id="step1SubmitBtn"
               type="submit"
-              className="mt-0.5 w-full py-1.5 px-3 bg-white hover:bg-[#dedee2] text-black font-bold rounded-full transition-all shadow-sm cursor-pointer flex items-center justify-center gap-1 text-xs active:scale-95"
+              className="w-full h-[52px] bg-white hover:bg-[#e6e6e6] text-[#0f1419] font-bold rounded-full transition-transform active:scale-[.985] cursor-pointer flex items-center justify-center gap-2 text-[15px]"
             >
               <span>Next: Set Password</span>
-              <ArrowRight className="w-3 h-3" />
+              <ArrowRight className="w-5 h-5" />
             </button>
           </form>
 
@@ -941,13 +941,13 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess, onToast, onClos
               id="checkVerifiedBtn"
               onClick={handleCheckEmailVerified}
               disabled={loading}
-              className="w-full py-1.5 px-3 bg-[#ffbd1a] hover:bg-[#ffc93f] text-black font-bold rounded-lg shadow-sm transition-all active:scale-95 cursor-pointer flex items-center justify-center gap-1 text-xs"
+              className="w-full h-[52px] bg-white hover:bg-[#e6e6e6] text-[#0f1419] font-bold rounded-full transition-transform active:scale-[.985] cursor-pointer flex items-center justify-center gap-2 text-[15px] disabled:opacity-65"
             >
               {loading ? (
-                <div className="w-3 h-3 border-2 border-black border-t-transparent rounded-full animate-spin" />
+                <div className="w-5 h-5 border-2 border-black/20 border-t-black rounded-full animate-spin" />
               ) : (
                 <>
-                  <RefreshCw className="w-3 h-3" />
+                  <RefreshCw className="w-5 h-5" />
                   <span>I've Verified — Continue</span>
                 </>
               )}
@@ -1091,14 +1091,14 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess, onToast, onClos
               id="step4SubmitBtn"
               type="submit"
               disabled={loading}
-              className="mt-0.5 w-full py-1.5 px-3 bg-[#ffbd1a] hover:bg-[#ffc93f] text-black font-bold rounded-lg shadow-sm transition-all active:scale-95 cursor-pointer disabled:opacity-50 flex items-center justify-center gap-1 text-xs"
+              className="w-full h-[52px] bg-white hover:bg-[#e6e6e6] text-[#0f1419] font-bold rounded-full transition-transform active:scale-[.985] cursor-pointer flex items-center justify-center gap-2 text-[15px] disabled:opacity-65"
             >
               {loading ? (
-                <div className="w-3 h-3 border-2 border-black border-t-transparent rounded-full animate-spin" />
+                <div className="w-5 h-5 border-2 border-black/20 border-t-black rounded-full animate-spin" />
               ) : (
                 <>
                   <span>Enter Pulse</span>
-                  <Sparkles className="w-3 h-3" />
+                  <Sparkles className="w-4 h-4" />
                 </>
               )}
             </button>
@@ -1168,9 +1168,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess, onToast, onClos
               id="sendResetBtn"
               type="submit"
               disabled={loading}
-              className="mt-0.5 w-full py-1.5 px-3 bg-white hover:bg-[#dedee2] text-black font-bold rounded-full transition-all shadow-sm cursor-pointer disabled:opacity-50 text-xs active:scale-95"
+              className="w-full h-[52px] bg-white hover:bg-[#e6e6e6] text-[#0f1419] font-bold rounded-full transition-transform active:scale-[.985] cursor-pointer text-[15px] disabled:opacity-65"
             >
-              {loading ? 'Sending link...' : 'Send Reset Link'}
+              {loading ? <div className="w-5 h-5 border-2 border-black/20 border-t-black rounded-full animate-spin" /> : 'Send Reset Link'}
             </button>
           </form>
 
@@ -1228,9 +1228,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess, onToast, onClos
             <button
               type="submit"
               disabled={loading}
-              className="mt-0.5 w-full py-1.5 px-3 bg-[#ffbd1a] hover:bg-[#ffc93f] text-black font-bold rounded-lg transition-all shadow-sm cursor-pointer disabled:opacity-50 text-xs active:scale-95"
+              className="w-full h-[52px] bg-white hover:bg-[#e6e6e6] text-[#0f1419] font-bold rounded-full transition-transform active:scale-[.985] cursor-pointer text-[15px] disabled:opacity-65"
             >
-              {loading ? 'Saving new password...' : 'Save Password & Log in'}
+              {loading ? <div className="w-5 h-5 border-2 border-black/20 border-t-black rounded-full animate-spin" /> : 'Save Password & Log in'}
             </button>
           </form>
         </div>

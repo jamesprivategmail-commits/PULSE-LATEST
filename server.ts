@@ -1398,6 +1398,9 @@ Connected live to Pulse Video Platform & Firestore.
     }
     return;
   }
+
+  // Free-text or unrecognized message → Groq-powered admin AI assistant
+  await handleAdminAiChat(chatId, text);
 }
 
 // Telegram Callback Query Handler (for inline buttons)
@@ -1710,6 +1713,59 @@ function getGeminiClient(): GoogleGenAI | null {
   return aiClient;
 }
 
+// Groq-powered admin AI assistant for Telegram — free-text chat for the platform owner.
+// Only reachable by the authorized admin (handleTelegramCommand already gates on
+// isAuthorizedAdmin before calling this). It answers questions using a live platform
+// snapshot and tells the owner the exact slash command for any action — it never
+// executes destructive commands itself, keeping a human in the loop.
+async function handleAdminAiChat(chatId: number, text: string) {
+  const groq = getGroqClient();
+  if (!groq) {
+    await sendTelegramMessage(chatId, '⚠️ Admin AI is not configured (GROQ_API_KEY missing). Set it to enable the assistant.');
+    return;
+  }
+  try {
+    await sendTelegramMessage(chatId, '🤖 Thinking…');
+    const usersSnap = await getDocs(collection(db, 'users'));
+    const videosSnap = await getDocs(collection(db, 'videos'));
+    const reportsSnap = await getDocs(query(collection(db, 'reports'), where('status', '==', 'open'), limit(20)));
+    const appealsSnap = await getDocs(query(collection(db, 'appeals'), where('status', '==', 'pending'), limit(20)));
+    let verified = 0; let banned = 0;
+    usersSnap.forEach((d: any) => { const u = d.data(); if (u.verified) verified++; if (u.banned) banned++; });
+
+    const systemPrompt = `You are the Pulse Admin AI Assistant — a private assistant for the owner of the Pulse short-form video platform, chatting via Telegram. Help the owner run, moderate, and understand the platform. Be concise and direct.
+
+LIVE PLATFORM SNAPSHOT:
+- Total users: ${usersSnap.size} (verified: ${verified}, banned: ${banned})
+- Total videos: ${videosSnap.size}
+- Open reports: ${reportsSnap.size}
+- Pending appeals: ${appealsSnap.size}
+
+AVAILABLE ADMIN COMMANDS (the owner runs these by typing them):
+/start, /help, /stats, /users <query>, /verify <uid|handle>, /unverify <uid|handle>, /ban <uid|handle> [reason], /unban <uid|handle>, /give_coins <uid|handle> <amount>, /videos <query>, /delete_video <id>, /reports, /resolve_report <id>, /appeals, /delete_comment <video_id> <comment_id>, /clean_database
+
+RULES:
+- Answer questions about the platform using the live snapshot above.
+- If the owner asks to perform an action (ban, verify, grant coins, delete, etc.), reply with the EXACT command they should type. Never claim you already did it — you cannot run commands.
+- Keep replies short and skimmable. Plain text, minimal emojis.`;
+
+    const completion = await groq.chat.completions.create({
+      model: 'openai/gpt-oss-120b',
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: text }
+      ],
+      temperature: 0.4,
+      max_tokens: 500
+    });
+    const reply = completion.choices[0]?.message?.content?.trim() || 'I could not generate a response.';
+    await sendTelegramMessage(chatId, reply);
+  } catch (err: any) {
+    console.error('Admin AI chat error:', err);
+    await sendTelegramMessage(chatId, '⚠️ The admin AI hit an error. Try again or use /help for the command list.');
+  }
+}
+
 // Handler for AI Caption Generation (Using Groq Ultra-Fast Inference)
 async function handleGenerateCaption(req: express.Request, res: express.Response) {
   try {
@@ -1840,6 +1896,32 @@ app.post('/api/ai/generate-caption', handleGenerateCaption);
 app.post('/api/groq/suggest-tags', handleSuggestTags);
 app.post('/api/gemini/suggest-tags', handleSuggestTags);
 app.post('/api/ai/suggest-tags', handleSuggestTags);
+
+// In-app AI Assistant (Meta-AI style — a creator helper, NO admin powers)
+app.post('/api/ai/chat', async (req, res) => {
+  const user = sessionUser(req);
+  if (!user) return res.status(401).json({ error: 'Please sign in to chat with the AI assistant.' });
+  const messages = Array.isArray(req.body?.messages) ? req.body.messages.slice(-12) : [];
+  if (!messages.length) return res.status(400).json({ error: 'Message is required.' });
+  const groq = getGroqClient();
+  if (!groq) return res.status(503).json({ error: 'The AI assistant is not available right now.' });
+  try {
+    const completion = await groq.chat.completions.create({
+      model: 'openai/gpt-oss-20b',
+      messages: [
+        { role: 'system', content: `You are Pulse AI, a friendly in-app assistant inside the Pulse short-form video app. You help creators with content ideas, captions, hashtags, trends, and general questions. Be concise, upbeat, and helpful. You cannot perform account, payment, or admin actions. The user's name is ${user.handle || user.username || 'creator'}.` },
+        ...messages
+      ],
+      temperature: 0.8,
+      max_tokens: 400
+    });
+    const reply = completion.choices[0]?.message?.content?.trim() || "I'm not sure how to help with that — try rephrasing.";
+    res.json({ success: true, reply });
+  } catch (err: any) {
+    console.error('AI chat error:', err);
+    res.status(500).json({ error: 'The AI assistant is having trouble right now. Please try again.' });
+  }
+});
 
 // Telegram Appeal Notification API (Triggered when user submits appeal on web app)
 app.post('/api/telegram/appeal', async (req, res) => {

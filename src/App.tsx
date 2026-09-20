@@ -34,6 +34,7 @@ import { SplashScreen } from './components/SplashScreen';
 import { UserProfile, VideoPost, StoryItem, NotificationItem, CallSession, LiveStream } from './types';
 import { PostCard } from './components/PostCard';
 import { AuthModal } from './components/AuthModal';
+import { AIAssistant } from './components/AIAssistant';
 import { CommentsSheet } from './components/CommentsSheet';
 import { CreatePostModal } from './components/CreatePostModal';
 import { EditPostModal } from './components/EditPostModal';
@@ -873,6 +874,9 @@ export default function App() {
           onClose={() => setShowAuthModal(false)}
         />
       )}
+
+      {/* In-app AI Assistant (Meta-AI style) */}
+      {currentUser && <AIAssistant />}
 
       {/* MAIN APPLICATION CONTAINER */}
       <div className="relative w-full flex-1 min-h-0 overflow-hidden flex flex-col">
