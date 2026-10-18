@@ -1010,7 +1010,7 @@ export const ChatPage: React.FC<ChatPageProps> = ({
                 background: 'transparent',
                 border: 0,
                 padding: '0 6px',
-                fontSize: 15,
+                fontSize: 16,
                 color: '#fff',
                 height: 40
               }}

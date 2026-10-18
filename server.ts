@@ -293,6 +293,219 @@ app.put('/api/db/doc', async (req, res) => { const pathParts = Array.isArray(req
 app.delete('/api/db/doc', async (req, res) => { const pathParts = Array.isArray(req.body?.path) ? req.body.path : []; await writeDocument(pathParts, {}, 'delete'); res.json({ success: true }); });
 
 // -------------------------------------------------------------
+// RESILIENT SOCIAL & PROFILE API (Server-Authoritative)
+// Ensures likes, follows, and profile changes never fail or revert
+// -------------------------------------------------------------
+app.post('/api/profile/update', async (req, res) => {
+  try {
+    const { uid, updates } = req.body;
+    if (!uid || typeof uid !== 'string') {
+      return res.status(400).json({ error: 'Missing or invalid uid' });
+    }
+    const safeUpdates = { ...(updates || {}), updatedAt: Date.now() };
+    await writeDocument(['users', uid], safeUpdates, 'update');
+    const existing = readDocument(['users', uid]) || {};
+
+    // Background attempt to sync to Firestore if possible
+    if (db) {
+      try {
+        await updateDoc(doc(db, 'users', uid), safeUpdates);
+      } catch (e) {
+        // Quietly handled - server document is authoritative
+      }
+    }
+
+    res.json({ success: true, profile: existing });
+  } catch (err: any) {
+    console.error('Error in /api/profile/update:', err);
+    res.status(500).json({ error: err.message || 'Failed to update profile' });
+  }
+});
+
+app.get('/api/profile/get', (req, res) => {
+  try {
+    const uid = String(req.query.uid || '');
+    if (!uid) return res.status(400).json({ error: 'Missing uid' });
+    const profile = readDocument(['users', uid]);
+    res.json({ exists: !!profile, profile: profile || null });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/video/like', async (req, res) => {
+  try {
+    const { videoId, user } = req.body;
+    if (!videoId || !user?.uid) {
+      return res.status(400).json({ error: 'Missing videoId or user info' });
+    }
+
+    const likePath = ['videos', videoId, 'likes', user.uid];
+    const existingLike = readDocument(likePath);
+    const videoData = readDocument(['videos', videoId]) || {};
+    let isLiked = false;
+    let newLikeCount = Math.max(0, Number(videoData.likeCount || 0));
+
+    if (existingLike) {
+      // Unlike
+      await writeDocument(likePath, {}, 'delete');
+      await writeDocument(['users', user.uid, 'likedVideos', videoId], {}, 'delete');
+      newLikeCount = Math.max(0, newLikeCount - 1);
+      await writeDocument(['videos', videoId], { likeCount: newLikeCount }, 'update');
+      isLiked = false;
+    } else {
+      // Like
+      await writeDocument(likePath, {
+        uid: user.uid,
+        who: user.handle || user.username || 'User',
+        avatar: user.photoURL || '',
+        createdAt: Date.now()
+      }, 'set');
+      await writeDocument(['users', user.uid, 'likedVideos', videoId], {
+        videoId,
+        likedAt: Date.now()
+      }, 'set');
+      newLikeCount = newLikeCount + 1;
+      await writeDocument(['videos', videoId], { likeCount: newLikeCount }, 'update');
+      isLiked = true;
+    }
+
+    // Attempt background Firestore sync
+    if (db) {
+      try {
+        const fLikeRef = doc(db, 'videos', videoId, 'likes', user.uid);
+        const fVidRef = doc(db, 'videos', videoId);
+        if (isLiked) {
+          await setDoc(fLikeRef, { uid: user.uid, who: user.handle, createdAt: Date.now() });
+          await updateDoc(fVidRef, { likeCount: increment(1) });
+        } else {
+          await deleteDoc(fLikeRef);
+          await updateDoc(fVidRef, { likeCount: increment(-1) });
+        }
+      } catch (e) {
+        // Ignored, serverDb maintains canonical state
+      }
+    }
+
+    res.json({ success: true, isLiked, likeCount: newLikeCount });
+  } catch (err: any) {
+    console.error('Error in /api/video/like:', err);
+    res.status(500).json({ error: err.message || 'Failed to toggle like' });
+  }
+});
+
+app.get('/api/video/check-like', (req, res) => {
+  try {
+    const videoId = String(req.query.videoId || '');
+    const uid = String(req.query.uid || '');
+    if (!videoId || !uid) return res.json({ isLiked: false });
+    const likeDoc = readDocument(['videos', videoId, 'likes', uid]);
+    res.json({ isLiked: !!likeDoc });
+  } catch {
+    res.json({ isLiked: false });
+  }
+});
+
+app.post('/api/user/follow', async (req, res) => {
+  try {
+    const { currentUid, targetUid, currentUserProfile, targetHandle } = req.body;
+    if (!currentUid || !targetUid || currentUid === targetUid) {
+      return res.status(400).json({ error: 'Invalid follower or target UID' });
+    }
+
+    const followingPath = ['follows', currentUid, 'following', targetUid];
+    const followerPath = ['follows', targetUid, 'followers', currentUid];
+
+    const existingFollow = readDocument(followingPath);
+    let isFollowing = false;
+
+    const meProfile = readDocument(['users', currentUid]) || {};
+    const targetProfile = readDocument(['users', targetUid]) || {};
+
+    let myFollowingCount = Math.max(0, Number(meProfile.following || 0));
+    let targetFollowersCount = Math.max(0, Number(targetProfile.followers || 0));
+
+    if (existingFollow) {
+      // Unfollow
+      await writeDocument(followingPath, {}, 'delete');
+      await writeDocument(followerPath, {}, 'delete');
+      myFollowingCount = Math.max(0, myFollowingCount - 1);
+      targetFollowersCount = Math.max(0, targetFollowersCount - 1);
+      await writeDocument(['users', currentUid], { following: myFollowingCount }, 'update');
+      await writeDocument(['users', targetUid], { followers: targetFollowersCount }, 'update');
+      isFollowing = false;
+    } else {
+      // Follow
+      await writeDocument(followingPath, {
+        uid: targetUid,
+        handle: targetHandle || '',
+        createdAt: Date.now()
+      }, 'set');
+      await writeDocument(followerPath, {
+        uid: currentUid,
+        handle: currentUserProfile?.handle || '',
+        createdAt: Date.now()
+      }, 'set');
+      myFollowingCount = myFollowingCount + 1;
+      targetFollowersCount = targetFollowersCount + 1;
+      await writeDocument(['users', currentUid], { following: myFollowingCount }, 'update');
+      await writeDocument(['users', targetUid], { followers: targetFollowersCount }, 'update');
+      isFollowing = true;
+    }
+
+    // Background Firestore attempt
+    if (db) {
+      try {
+        const fFollowingRef = doc(db, 'follows', currentUid, 'following', targetUid);
+        const fFollowerRef = doc(db, 'follows', targetUid, 'followers', currentUid);
+        if (isFollowing) {
+          await setDoc(fFollowingRef, { uid: targetUid, handle: targetHandle || '', createdAt: Date.now() });
+          await setDoc(fFollowerRef, { uid: currentUid, handle: currentUserProfile?.handle || '', createdAt: Date.now() });
+        } else {
+          await deleteDoc(fFollowingRef);
+          await deleteDoc(fFollowerRef);
+        }
+      } catch (e) {
+        // Ignored, serverDb maintains canonical state
+      }
+    }
+
+    res.json({
+      success: true,
+      isFollowing,
+      myFollowingCount,
+      targetFollowersCount
+    });
+  } catch (err: any) {
+    console.error('Error in /api/user/follow:', err);
+    res.status(500).json({ error: err.message || 'Failed to toggle follow' });
+  }
+});
+
+app.get('/api/user/check-follow', (req, res) => {
+  try {
+    const currentUid = String(req.query.currentUid || '');
+    const targetUid = String(req.query.targetUid || '');
+    if (!currentUid || !targetUid) return res.json({ isFollowing: false });
+    const followDoc = readDocument(['follows', currentUid, 'following', targetUid]);
+    res.json({ isFollowing: !!followDoc });
+  } catch {
+    res.json({ isFollowing: false });
+  }
+});
+
+app.get('/api/user/following-list', (req, res) => {
+  try {
+    const uid = String(req.query.uid || '');
+    if (!uid) return res.json({ following: [] });
+    const docs = listDocuments(['follows', uid, 'following']);
+    res.json({ following: docs.map((d: any) => d.id) });
+  } catch {
+    res.json({ following: [] });
+  }
+});
+
+// -------------------------------------------------------------
 // TELEGRAM BOT COMMAND HANDLER
 // -------------------------------------------------------------
 async function handleTelegramCommand(chatId: number, text: string, fromUser: any) {

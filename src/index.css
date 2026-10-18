@@ -41,6 +41,13 @@
 
 html.pulse-lite-mode video{ content-visibility:auto; }
 
+/* Prevent iOS auto-zoom overlay glitch when typing */
+@media screen and (max-width: 767px) {
+  input:not([type="checkbox"]):not([type="radio"]), textarea, select {
+    font-size: 16px !important;
+  }
+}
+
 /* Shared shell */
 .px-header{
   position:sticky;

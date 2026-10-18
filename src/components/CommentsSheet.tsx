@@ -135,12 +135,14 @@ export const CommentsSheet: React.FC<CommentsSheetProps> = ({
         id="commentsBackdrop"
         onClick={onClose}
         className="fixed inset-0 bg-black/60 backdrop-blur-xs z-40 max-w-[480px] mx-auto animate-in fade-in"
+        style={{ touchAction: 'none' }}
       />
 
       {/* Sheet Container */}
       <div
         id="commentsSheet"
-        className="fixed bottom-0 left-0 right-0 max-w-[480px] mx-auto max-h-[85dvh] h-[68dvh] bg-black rounded-t-xl z-50 flex flex-col border-t border-white/10 shadow-2xl animate-in slide-in-from-bottom duration-200 overscroll-contain pb-[env(safe-area-inset-bottom)]"
+        className="fixed bottom-0 left-0 right-0 max-w-[480px] mx-auto max-h-[85vh] h-[70vh] bg-black rounded-t-xl z-50 flex flex-col border-t border-white/10 shadow-2xl animate-in slide-in-from-bottom duration-200 pb-[env(safe-area-inset-bottom)]"
+        style={{ touchAction: 'pan-y' }}
       >
         {/* Header */}
         <div className="flex items-center justify-between px-3.5 py-2.5 border-b border-white/10 shrink-0 bg-neutral-950">
@@ -291,12 +293,12 @@ export const CommentsSheet: React.FC<CommentsSheetProps> = ({
         {/* Input Bar */}
         <form
           onSubmit={handleSubmit}
-          className="p-2.5 border-t border-white/10 flex items-center gap-2 bg-neutral-950 shrink-0"
+          className="p-2.5 border-t border-white/10 flex items-center gap-2 bg-neutral-950 shrink-0 sticky bottom-0 z-10"
         >
           <img
             src={currentUser?.photoURL || 'https://api.dicebear.com/7.x/avataaars/svg?seed=guest'}
             alt="My Avatar"
-            className="w-6 h-6 rounded-full object-cover border border-white/10 shrink-0"
+            className="w-7 h-7 rounded-full object-cover border border-white/10 shrink-0"
           />
           <input
             id="commentInput"
@@ -311,13 +313,14 @@ export const CommentsSheet: React.FC<CommentsSheetProps> = ({
                 : 'Log in to comment...'
             }
             disabled={submitting}
-            className="flex-1 bg-black border border-white/10 rounded-lg px-3 py-1.5 text-xs text-white placeholder:text-neutral-500 focus:outline-none focus:border-[#25f4ee]"
+            className="flex-1 bg-black border border-white/10 rounded-lg px-3 py-2 text-[16px] sm:text-xs text-white placeholder:text-neutral-500 focus:outline-none focus:border-[#25f4ee]"
+            style={{ fontSize: '16px' }}
           />
           <button
             id="sendComment"
             type="submit"
             disabled={!inputText.trim() || submitting}
-            className="text-black bg-[#25f4ee] hover:bg-[#1ee0da] font-bold text-xs px-2.5 py-1 rounded-md disabled:opacity-40 disabled:hover:bg-[#25f4ee] cursor-pointer flex items-center gap-1 shrink-0"
+            className="text-black bg-[#25f4ee] hover:bg-[#1ee0da] font-bold text-xs px-3 py-2 rounded-md disabled:opacity-40 disabled:hover:bg-[#25f4ee] cursor-pointer flex items-center gap-1 shrink-0"
           >
             <Send className="w-3 h-3" />
             Post

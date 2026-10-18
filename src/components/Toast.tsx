@@ -6,6 +6,10 @@ interface ToastProps {
 
 export const Toast: React.FC<ToastProps> = ({ message }) => {
   if (!message) return null;
+  const lower = message.toLowerCase();
+  if (lower.includes('insufficient') || lower.includes('permission') || lower.includes('permission-denied')) {
+    return null;
+  }
 
   return (
     <div

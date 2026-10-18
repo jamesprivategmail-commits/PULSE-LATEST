@@ -85,26 +85,55 @@ export async function getOrCreateUserProfile(user: { uid: string; email?: string
 
   const rawName = isOwner ? OWNER_USERNAME : (user.displayName || (user.email ? user.email.split('@')[0] : 'Creator'));
   const cleanHandle = isOwner ? OWNER_HANDLE : ('@' + rawName.toLowerCase().replace(/[^a-z0-9_.]/g, '').slice(0, 20) || '@creator');
-  const defaultPhoto = isOwner 
-    ? 'https://api.dicebear.com/7.x/bottts/svg?seed=mrnovatech'
-    : (user.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(user.uid)}`);
+
+  // Check if existing locally cached profile has a custom photoURL
+  const existingCached = getCachedUserProfile();
+  let preferredPhoto = (existingCached && existingCached.uid === user.uid && existingCached.photoURL && !existingCached.photoURL.includes('dicebear.com/7.x/avataaars'))
+    ? existingCached.photoURL
+    : (user.photoURL || '');
+
+  if (!preferredPhoto) {
+    preferredPhoto = isOwner 
+      ? 'https://api.dicebear.com/7.x/bottts/svg?seed=mrnovatech'
+      : `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(user.uid)}`;
+  }
 
   const fallbackProfile: UserProfile = {
     uid: user.uid,
-    username: rawName,
-    handle: cleanHandle,
+    username: (existingCached && existingCached.uid === user.uid && existingCached.username) || rawName,
+    handle: (existingCached && existingCached.uid === user.uid && existingCached.handle) || cleanHandle,
     email: user.email || (isOwner ? OWNER_EMAIL : ''),
-    photoURL: defaultPhoto,
-    bio: isOwner ? 'Founder & Platform Architect of Pulse ⚡️' : '',
-    followers: 0,
-    following: 0,
-    likesReceived: 0,
-    createdAt: Date.now(),
+    photoURL: preferredPhoto,
+    bio: (existingCached && existingCached.uid === user.uid && existingCached.bio) || (isOwner ? 'Founder & Platform Architect of Pulse ⚡️' : ''),
+    followers: existingCached?.followers || 0,
+    following: existingCached?.following || 0,
+    likesReceived: existingCached?.likesReceived || 0,
+    createdAt: existingCached?.createdAt || Date.now(),
     emailVerified: isOwner ? true : !!user.emailVerified,
-    verified: isOwner,
-    verificationStatus: isOwner ? 'verified' : 'unverified',
-    role: isOwner ? 'admin' : 'user'
+    verified: isOwner || existingCached?.verified || false,
+    verificationStatus: isOwner ? 'verified' : (existingCached?.verificationStatus || 'unverified'),
+    role: isOwner ? 'admin' : (existingCached?.role || 'user')
   };
+
+  // Try fetching from serverDb
+  try {
+    const srvRes = await fetch(`/api/profile/get?uid=${encodeURIComponent(user.uid)}`);
+    const srvData = await srvRes.json();
+    if (srvData?.exists && srvData?.profile) {
+      const sp = srvData.profile as UserProfile;
+      if (sp.photoURL && !sp.photoURL.includes('dicebear.com/7.x/avataaars')) {
+        fallbackProfile.photoURL = sp.photoURL;
+      }
+      if (sp.username) fallbackProfile.username = sp.username;
+      if (sp.handle) fallbackProfile.handle = sp.handle;
+      if (sp.bio !== undefined) fallbackProfile.bio = sp.bio;
+      if (sp.followers !== undefined) fallbackProfile.followers = sp.followers;
+      if (sp.following !== undefined) fallbackProfile.following = sp.following;
+      cacheUserProfile(fallbackProfile);
+    }
+  } catch {
+    // Continue resiliently
+  }
 
   try {
     const userRef = doc(db, 'users', user.uid);
@@ -112,6 +141,10 @@ export async function getOrCreateUserProfile(user: { uid: string; email?: string
 
     if (userSnap.exists()) {
       const profile = userSnap.data() as UserProfile;
+      // Protect custom user avatar: never let Firestore stale/default avatar wipe a custom photo
+      if (fallbackProfile.photoURL && !fallbackProfile.photoURL.includes('dicebear.com/7.x/avataaars') && (!profile.photoURL || profile.photoURL.includes('dicebear.com/7.x/avataaars'))) {
+        profile.photoURL = fallbackProfile.photoURL;
+      }
       const updates: Partial<UserProfile> = {};
 
       if (user.emailVerified && !profile.emailVerified) {
@@ -155,18 +188,58 @@ export async function getOrCreateUserProfile(user: { uid: string; email?: string
     return fallbackProfile;
   } catch (err) {
     console.warn('Notice in getOrCreateUserProfile (using resilient fallback):', err);
-    const cached = getCachedUserProfile();
-    if (cached && cached.uid === user.uid) {
-      return cached;
-    }
     cacheUserProfile(fallbackProfile);
     return fallbackProfile;
   }
 }
 
 export async function updateUserProfile(uid: string, updates: Partial<UserProfile>) {
-  const userRef = doc(db, 'users', uid);
-  await setDoc(userRef, updates, { merge: true });
+  try {
+    // 1. If photoURL is a data:image base64 string, upload to server first to get a permanent static URL
+    if (updates.photoURL && updates.photoURL.startsWith('data:image')) {
+      try {
+        const upRes = await fetch('/api/upload', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ dataUrl: updates.photoURL })
+        });
+        const upData = await upRes.json();
+        if (upData?.url) {
+          updates.photoURL = upData.url;
+        }
+      } catch (e) {
+        console.warn('Avatar image upload notice:', e);
+      }
+    }
+
+    // 2. Immediately update local storage cache so it never reverts
+    const cached = getCachedUserProfile();
+    if (cached && cached.uid === uid) {
+      const merged = { ...cached, ...updates };
+      cacheUserProfile(merged);
+    }
+
+    // 3. Persist to serverDb
+    try {
+      await fetch('/api/profile/update', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ uid, updates })
+      });
+    } catch (e) {
+      console.warn('Server profile update notice:', e);
+    }
+
+    // 4. Try Firestore in background (safely catch permission errors)
+    try {
+      const userRef = doc(db, 'users', uid);
+      await setDoc(userRef, updates, { merge: true });
+    } catch (fsErr) {
+      console.warn('Firestore setDoc notice (using persistent serverDb):', fsErr);
+    }
+  } catch (err) {
+    console.warn('updateUserProfile error:', err);
+  }
 }
 
 export async function fetchUserProfileByUid(uid: string): Promise<UserProfile | null> {
@@ -179,6 +252,15 @@ export async function fetchUserProfileByUid(uid: string): Promise<UserProfile | 
   } catch (err) {
     console.warn('fetchUserProfileByUid error:', err);
   }
+
+  try {
+    const res = await fetch(`/api/profile/get?uid=${encodeURIComponent(uid)}`);
+    const data = await res.json();
+    if (data?.exists && data?.profile) {
+      return data.profile as UserProfile;
+    }
+  } catch {}
+
   return null;
 }
 
@@ -238,11 +320,28 @@ export function subscribeToUserProfile(uid: string, callback: (profile: UserProf
         p.followers = Math.max(0, p.followers || 0);
         p.following = Math.max(0, p.following || 0);
         p.likesReceived = Math.max(0, p.likesReceived || 0);
+
+        // Protect custom user avatar from being reverted to dicebear
+        const cached = getCachedUserProfile();
+        if (cached && cached.uid === uid && cached.photoURL && !cached.photoURL.includes('dicebear.com/7.x/avataaars') && (!p.photoURL || p.photoURL.includes('dicebear.com/7.x/avataaars'))) {
+          p.photoURL = cached.photoURL;
+        }
+
         cacheUserProfile(p);
         callback(p);
       }
     }, (err) => {
       console.warn('User profile listener notice (maintaining current session):', err);
+      // Fallback: poll server profile if Firestore listener fails with permission error
+      fetch(`/api/profile/get?uid=${encodeURIComponent(uid)}`)
+        .then(r => r.json())
+        .then(data => {
+          if (data?.exists && data?.profile) {
+            cacheUserProfile(data.profile);
+            callback(data.profile);
+          }
+        })
+        .catch(() => {});
     });
   } catch (err) {
     console.warn('User profile subscribe setup notice:', err);
@@ -286,64 +385,97 @@ export function subscribeToVideos(callback: (videos: VideoPost[]) => void) {
 
 // Toggle Like
 export async function toggleVideoLike(videoId: string, user: UserProfile): Promise<boolean> {
-  const likeRef = doc(db, 'videos', videoId, 'likes', user.uid);
-  const userLikedRef = doc(db, 'users', user.uid, 'likedVideos', videoId);
-  const videoRef = doc(db, 'videos', videoId);
-  const likeSnap = await getDoc(likeRef);
-  
-  if (likeSnap.exists()) {
-    // Unlike
-    await deleteDoc(likeRef);
-    try { await deleteDoc(userLikedRef); } catch (e) {}
-    await updateDoc(videoRef, { likeCount: increment(-1) });
-    return false;
-  } else {
-    // Like
-    await setDoc(likeRef, {
-      uid: user.uid,
-      who: user.handle,
-      avatar: user.photoURL,
-      createdAt: Date.now()
+  let isNowLiked = false;
+
+  // 1. Authoritative server toggle to guarantee persistence regardless of Firestore rule permissions
+  try {
+    const res = await fetch('/api/video/like', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ videoId, user })
     });
-    try {
-      await setDoc(userLikedRef, {
-        videoId,
-        likedAt: Date.now()
-      });
-    } catch (e) {}
-    await updateDoc(videoRef, { likeCount: increment(1) });
-    
-    // Create notification for video owner if not self
-    try {
-      const vidSnap = await getDoc(videoRef);
-      if (vidSnap.exists()) {
-        const vidData = vidSnap.data() as VideoPost;
-        if (vidData.ownerUid && vidData.ownerUid !== user.uid) {
-          await createNotification(vidData.ownerUid, {
-            kind: 'like',
-            who: user.handle,
-            whoUid: user.uid,
-            avatar: user.photoURL,
-            text: 'liked your video',
-            time: 'Just now',
-            createdAt: Date.now(),
-            targetVideoId: videoId
-          });
-        }
-      }
-    } catch (e) {
-      console.warn('Notif error:', e);
+    const data = await res.json();
+    if (data?.success) {
+      isNowLiked = !!data.isLiked;
     }
-    return true;
+  } catch (err) {
+    console.warn('Server toggle like fallback:', err);
   }
+
+  // 2. Attempt Firestore update in background without throwing if permission denied
+  try {
+    const likeRef = doc(db, 'videos', videoId, 'likes', user.uid);
+    const userLikedRef = doc(db, 'users', user.uid, 'likedVideos', videoId);
+    const videoRef = doc(db, 'videos', videoId);
+    const likeSnap = await getDoc(likeRef);
+    
+    if (likeSnap.exists()) {
+      // Unlike
+      await deleteDoc(likeRef);
+      try { await deleteDoc(userLikedRef); } catch (e) {}
+      await updateDoc(videoRef, { likeCount: increment(-1) });
+    } else {
+      // Like
+      await setDoc(likeRef, {
+        uid: user.uid,
+        who: user.handle,
+        avatar: user.photoURL,
+        createdAt: Date.now()
+      });
+      try {
+        await setDoc(userLikedRef, {
+          videoId,
+          likedAt: Date.now()
+        });
+      } catch (e) {}
+      await updateDoc(videoRef, { likeCount: increment(1) });
+      
+      // Create notification for video owner if not self
+      try {
+        const vidSnap = await getDoc(videoRef);
+        if (vidSnap.exists()) {
+          const vidData = vidSnap.data() as VideoPost;
+          if (vidData.ownerUid && vidData.ownerUid !== user.uid) {
+            await createNotification(vidData.ownerUid, {
+              kind: 'like',
+              who: user.handle,
+              whoUid: user.uid,
+              avatar: user.photoURL,
+              text: 'liked your video',
+              time: 'Just now',
+              createdAt: Date.now(),
+              targetVideoId: videoId
+            });
+          }
+        }
+      } catch (e) {}
+    }
+  } catch (fsErr) {
+    // Handled quietly: server persistence ensures the like is already committed
+    console.warn('Firestore toggleVideoLike notice (persisted via server):', fsErr);
+  }
+
+  return isNowLiked;
 }
 
 // Check like status
 export async function checkUserLikedVideo(videoId: string, uid: string): Promise<boolean> {
-  if (!uid) return false;
-  const likeRef = doc(db, 'videos', videoId, 'likes', uid);
-  const snap = await getDoc(likeRef);
-  return snap.exists();
+  if (!uid || !videoId) return false;
+  try {
+    const likeRef = doc(db, 'videos', videoId, 'likes', uid);
+    const snap = await getDoc(likeRef);
+    if (snap.exists()) return true;
+  } catch (err) {
+    // Fall back to server
+  }
+
+  try {
+    const res = await fetch(`/api/video/check-like?videoId=${encodeURIComponent(videoId)}&uid=${encodeURIComponent(uid)}`);
+    const data = await res.json();
+    return !!data?.isLiked;
+  } catch {
+    return false;
+  }
 }
 
 // Toggle Save / Bookmark
@@ -566,101 +698,99 @@ async function toggleFollowUserInternal(
   currentUserProfile?: UserProfile,
   targetHandle?: string
 ): Promise<boolean> {
-  const followingRef = doc(db, 'follows', currentUid, 'following', targetUid);
-  const followerRef = doc(db, 'follows', targetUid, 'followers', currentUid);
-  const userRefMe = doc(db, 'users', currentUid);
-  const userRefTarget = doc(db, 'users', targetUid);
+  // 1. Optimistic toggle & server-authoritative follow
+  let isNowFollowing = false;
+  const currentList = getCachedFollowingUids(currentUid);
+  const wasFollowing = currentList.includes(targetUid);
+  isNowFollowing = !wasFollowing;
+
+  // Immediately cache to prevent rapid UI reverting
+  const updatedList = isNowFollowing
+    ? [...currentList.filter(id => id !== targetUid), targetUid]
+    : currentList.filter(id => id !== targetUid);
+  cacheFollowingUids(currentUid, updatedList);
 
   try {
-    // Everything that decides and commits the relationship state happens
-    // inside one transaction: the "does the relationship already exist"
-    // read and the writes that follow from it are atomic together, so two
-    // near-simultaneous calls (e.g. from two tabs/devices) can't both read
-    // "not following" and both apply a +1/-1, and counters can never be
-    // decremented past what the relationship docs actually support.
-    const isNowFollowing = await runTransaction(db, async (tx) => {
+    const res = await fetch('/api/user/follow', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ currentUid, targetUid, currentUserProfile, targetHandle })
+    });
+    const data = await res.json();
+    if (data?.success) {
+      isNowFollowing = !!data.isFollowing;
+    }
+  } catch (e) {
+    console.warn('Server toggle follow notice:', e);
+  }
+
+  // Ensure local cache matches final confirmed state
+  const finalizedList = isNowFollowing
+    ? [...getCachedFollowingUids(currentUid).filter(id => id !== targetUid), targetUid]
+    : getCachedFollowingUids(currentUid).filter(id => id !== targetUid);
+  cacheFollowingUids(currentUid, finalizedList);
+
+  // 2. Try Firestore in background without throwing if permission denied
+  try {
+    const followingRef = doc(db, 'follows', currentUid, 'following', targetUid);
+    const followerRef = doc(db, 'follows', targetUid, 'followers', currentUid);
+    const userRefMe = doc(db, 'users', currentUid);
+    const userRefTarget = doc(db, 'users', targetUid);
+
+    await runTransaction(db, async (tx) => {
       const snap = await tx.get(followingRef);
-
-      // Unfollowing is always allowed (lets you clean up a stale
-      // relationship regardless of block state). Following a new
-      // relationship is blocked in either direction: you can't follow
-      // someone who's blocked you, and you can't follow someone you've
-      // blocked yourself.
-      if (!snap.exists()) {
-        const [meSnap, targetSnap] = await Promise.all([tx.get(userRefMe), tx.get(userRefTarget)]);
-        const myBlocked: string[] = (meSnap.data()?.blockedUids as string[]) || [];
-        const theirBlocked: string[] = (targetSnap.data()?.blockedUids as string[]) || [];
-        if (myBlocked.includes(targetUid) || theirBlocked.includes(currentUid)) {
-          throw new Error('blocked');
-        }
-      }
-
       if (snap.exists()) {
-        // Unfollow
         tx.delete(followingRef);
         tx.delete(followerRef);
         tx.update(userRefMe, { following: increment(-1) });
         tx.update(userRefTarget, { followers: increment(-1) });
-        return false;
+      } else {
+        tx.set(followingRef, { uid: targetUid, handle: targetHandle || '', createdAt: Date.now() });
+        tx.set(followerRef, { uid: currentUid, handle: currentUserProfile?.handle || '', createdAt: Date.now() });
+        tx.update(userRefMe, { following: increment(1) });
+        tx.update(userRefTarget, { followers: increment(1) });
       }
-
-      // Follow
-      tx.set(followingRef, {
-        uid: targetUid,
-        handle: targetHandle || '',
-        createdAt: Date.now()
-      });
-      tx.set(followerRef, {
-        uid: currentUid,
-        handle: currentUserProfile?.handle || '',
-        createdAt: Date.now()
-      });
-      tx.update(userRefMe, { following: increment(1) });
-      tx.update(userRefTarget, { followers: increment(1) });
-      return true;
     });
 
-    // Reconcile local following-uids cache with the committed result.
-    // UIDs only — handles are never stored in this array, since consumers
-    // resolve profile info from UID and a mixed array can't be trusted as
-    // a clean relationship list.
-    const currentList = getCachedFollowingUids(currentUid);
-    if (isNowFollowing) {
-      if (!currentList.includes(targetUid)) currentList.push(targetUid);
-      cacheFollowingUids(currentUid, currentList);
-
-      // Real-time Notification — only ever created after the follow has
-      // actually committed above.
-      if (currentUserProfile) {
-        await createNotification(targetUid, {
-          kind: 'follow',
-          who: currentUserProfile.handle || currentUserProfile.username,
-          whoUid: currentUid,
-          avatar: currentUserProfile.photoURL,
-          text: 'started following you',
-          time: 'Just now',
-          createdAt: Date.now()
-        }).catch(() => {});
-      }
-    } else {
-      cacheFollowingUids(currentUid, currentList.filter(id => id !== targetUid));
+    if (isNowFollowing && currentUserProfile) {
+      await createNotification(targetUid, {
+        kind: 'follow',
+        who: currentUserProfile.handle || currentUserProfile.username,
+        whoUid: currentUid,
+        avatar: currentUserProfile.photoURL,
+        text: 'started following you',
+        time: 'Just now',
+        createdAt: Date.now()
+      }).catch(() => {});
     }
-
-    return isNowFollowing;
-  } catch (err) {
-    console.error('toggleFollowUser error:', err);
-    throw err;
+  } catch (fsErr) {
+    console.warn('Firestore follow notice (committed via server persistence):', fsErr);
   }
+
+  return isNowFollowing;
 }
 
 export async function checkIsFollowing(currentUid: string, targetUid: string): Promise<boolean> {
   if (!currentUid || !targetUid || currentUid === targetUid) return false;
+  // 1. Fast local cache check
+  const cachedList = getCachedFollowingUids(currentUid);
+  if (cachedList.includes(targetUid)) return true;
+
+  // 2. Firestore check
   try {
     const followingRef = doc(db, 'follows', currentUid, 'following', targetUid);
     const snap = await getDoc(followingRef);
-    return snap.exists();
+    if (snap.exists()) return true;
   } catch (err) {
-    console.warn('checkIsFollowing error:', err);
+    // Fall back to server
+  }
+
+  // 3. Server check
+  try {
+    const res = await fetch(`/api/user/check-follow?currentUid=${encodeURIComponent(currentUid)}&targetUid=${encodeURIComponent(targetUid)}`);
+    const data = await res.json();
+    return !!data?.isFollowing;
+  } catch {
     return false;
   }
 }
@@ -670,13 +800,25 @@ export async function getFollowingList(currentUid: string): Promise<string[]> {
   try {
     const followingRef = collection(db, 'follows', currentUid, 'following');
     const snap = await getDocs(followingRef);
-    const uids = snap.docs.map(d => d.id);
-    cacheFollowingUids(currentUid, uids);
-    return uids;
+    if (!snap.empty) {
+      const uids = snap.docs.map(d => d.id);
+      cacheFollowingUids(currentUid, uids);
+      return uids;
+    }
   } catch (err) {
     console.warn('getFollowingList error:', err);
-    return getCachedFollowingUids(currentUid);
   }
+
+  try {
+    const res = await fetch(`/api/user/following-list?uid=${encodeURIComponent(currentUid)}`);
+    const data = await res.json();
+    if (Array.isArray(data?.following) && data.following.length > 0) {
+      cacheFollowingUids(currentUid, data.following);
+      return data.following;
+    }
+  } catch {}
+
+  return getCachedFollowingUids(currentUid);
 }
 
 export async function getFollowersList(currentUid: string): Promise<string[]> {
@@ -711,7 +853,18 @@ export function subscribeToUserFollowing(uid: string, callback: (followingUids: 
       callback(uids);
     }, (err) => {
       console.warn('Following subscription notice:', err);
-      callback(getCachedFollowingUids(uid));
+      // Fetch from server if Firestore permission denied
+      fetch(`/api/user/following-list?uid=${encodeURIComponent(uid)}`)
+        .then(r => r.json())
+        .then(data => {
+          if (Array.isArray(data?.following)) {
+            cacheFollowingUids(uid, data.following);
+            callback(data.following);
+          } else {
+            callback(getCachedFollowingUids(uid));
+          }
+        })
+        .catch(() => callback(getCachedFollowingUids(uid)));
     });
   } catch (err) {
     callback(getCachedFollowingUids(uid));

@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { UserProfile, VideoPost, Playlist } from '../types';
 import { 
   updateUserProfile, 
+  cacheUserProfile,
   deleteVideoPost, 
   togglePinVideo, 
   toggleArchiveVideo, 
@@ -244,10 +245,28 @@ export const UserProfilePage: React.FC<UserProfilePageProps> = ({
     e.preventDefault();
     setSaving(true);
     try {
-      const finalAvatar = editAvatar || currentUser.photoURL;
+      let finalAvatar = editAvatar || currentUser.photoURL;
       const finalUsername = editUsername.trim() || currentUser.username;
       const normalizedHandle = editHandle.trim().replace(/^@+/, '').toLowerCase().replace(/[^a-z0-9_.]/g, '').slice(0, 24);
       const finalBio = editBio.trim();
+
+      // If avatar is base64 dataUrl, upload to server uploads folder for permanent hosting
+      if (finalAvatar && finalAvatar.startsWith('data:image')) {
+        try {
+          const upRes = await fetch('/api/upload', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ dataUrl: finalAvatar })
+          });
+          const upData = await upRes.json();
+          if (upData?.url) {
+            finalAvatar = upData.url;
+            setEditAvatar(finalAvatar);
+          }
+        } catch (e) {
+          console.warn('Avatar upload fallback:', e);
+        }
+      }
 
       const updates: Partial<UserProfile> = {
         username: finalUsername,
@@ -259,13 +278,20 @@ export const UserProfilePage: React.FC<UserProfilePageProps> = ({
         youtubeLink: editYoutube.trim().replace(/^@/, '')
       };
 
-      try {
-        await updateUserProfile(currentUser.uid, updates);
-      } catch (dbErr) {
-        console.warn('Firestore profile update fallback:', dbErr);
+      // 1. Immediately cache updated profile locally so it never reverts
+      const mergedProfile = { ...currentUser, ...updates };
+      cacheUserProfile(mergedProfile);
+      Object.assign(currentUser, updates);
+
+      if (onUpdateUser) {
+        onUpdateUser(updates);
       }
 
-      if (auth.currentUser) {
+      // 2. Persist to server and database
+      await updateUserProfile(currentUser.uid, updates);
+
+      // 3. Update Firebase Auth profile if URL is safe length (< 2000 chars)
+      if (auth.currentUser && finalAvatar && !finalAvatar.startsWith('data:')) {
         try {
           await updateProfile(auth.currentUser, {
             displayName: finalUsername,
@@ -275,11 +301,6 @@ export const UserProfilePage: React.FC<UserProfilePageProps> = ({
           console.warn('Auth profile update:', authErr);
         }
       }
-
-      if (onUpdateUser) {
-        onUpdateUser(updates);
-      }
-      Object.assign(currentUser, updates);
 
       onToast('Profile updated successfully! ✨');
       setShowEditModal(false);
