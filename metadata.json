@@ -1,5 +1,5 @@
 {
-  "name": "FINAL ",
+  "name": "Pulse",
   "description": "A vertical video social platform with real authentication, video feeds, user profiles, interactive comments, and real-time chat.",
   "requestFramePermissions": [
     "camera",

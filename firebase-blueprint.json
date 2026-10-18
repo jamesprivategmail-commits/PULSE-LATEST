@@ -1,0 +1,180 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "User account profile on Pulse",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "username": { "type": "string", "maxLength": 50 },
+        "handle": { "type": "string", "maxLength": 50 },
+        "email": { "type": "string", "maxLength": 120 },
+        "photoURL": { "type": "string" },
+        "bio": { "type": "string", "maxLength": 500 },
+        "followers": { "type": "number" },
+        "following": { "type": "number" },
+        "likesReceived": { "type": "number" },
+        "createdAt": { "type": "number" },
+        "emailVerified": { "type": "boolean" },
+        "verified": { "type": "boolean" },
+        "banned": { "type": "boolean" }
+      },
+      "required": ["uid", "username", "handle"]
+    },
+    "VideoPost": {
+      "title": "VideoPost",
+      "description": "Video publication on Pulse",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "src": { "type": "string" },
+        "caption": { "type": "string", "maxLength": 1000 },
+        "sound": { "type": "string" },
+        "ownerUid": { "type": "string" },
+        "ownerHandle": { "type": "string" },
+        "ownerAvatar": { "type": "string" },
+        "likeCount": { "type": "number" },
+        "commentCount": { "type": "number" },
+        "createdAt": { "type": "number" }
+      },
+      "required": ["ownerUid", "caption"]
+    },
+    "Comment": {
+      "title": "Comment",
+      "description": "Comment on a video post",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "videoId": { "type": "string" },
+        "authorUid": { "type": "string" },
+        "authorHandle": { "type": "string" },
+        "authorAvatar": { "type": "string" },
+        "text": { "type": "string", "maxLength": 500 },
+        "createdAt": { "type": "number" },
+        "likes": { "type": "number" }
+      },
+      "required": ["videoId", "authorUid", "text"]
+    },
+    "Story": {
+      "title": "Story",
+      "description": "24-hour ephemeral story",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "ownerUid": { "type": "string" },
+        "ownerHandle": { "type": "string" },
+        "ownerAvatar": { "type": "string" },
+        "mediaUrl": { "type": "string" },
+        "createdAt": { "type": "number" },
+        "expiresAt": { "type": "number" }
+      },
+      "required": ["ownerUid", "mediaUrl"]
+    },
+    "LiveStream": {
+      "title": "LiveStream",
+      "description": "Active live broadcast",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "hostUid": { "type": "string" },
+        "hostHandle": { "type": "string" },
+        "title": { "type": "string", "maxLength": 100 },
+        "status": { "type": "string" },
+        "viewerCount": { "type": "number" },
+        "startedAt": { "type": "number" }
+      },
+      "required": ["hostUid", "title", "status"]
+    },
+    "ChatMessage": {
+      "title": "ChatMessage",
+      "description": "Direct message or group message",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "senderUid": { "type": "string" },
+        "senderHandle": { "type": "string" },
+        "text": { "type": "string", "maxLength": 2000 },
+        "timestamp": { "type": "number" }
+      },
+      "required": ["senderUid", "text"]
+    },
+    "Report": {
+      "title": "Report",
+      "description": "Moderation report",
+      "type": "object",
+      "properties": {
+        "reporterUid": { "type": "string" },
+        "reporterHandle": { "type": "string" },
+        "type": { "type": "string" },
+        "targetId": { "type": "string" },
+        "reason": { "type": "string" },
+        "status": { "type": "string" },
+        "createdAt": { "type": "number" }
+      },
+      "required": ["reporterUid", "type", "targetId", "reason"]
+    },
+    "Appeal": {
+      "title": "Appeal",
+      "description": "User ban appeal",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "handle": { "type": "string" },
+        "reason": { "type": "string" },
+        "status": { "type": "string" },
+        "createdAt": { "type": "number" }
+      },
+      "required": ["uid", "reason", "status"]
+    },
+    "Announcement": {
+      "title": "Announcement",
+      "description": "Platform announcement",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "message": { "type": "string" },
+        "isActive": { "type": "boolean" },
+        "createdAt": { "type": "number" }
+      },
+      "required": ["title", "message"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "UserProfile",
+      "description": "User profiles"
+    },
+    "/videos/{videoId}": {
+      "schema": "VideoPost",
+      "description": "Video feed posts"
+    },
+    "/videos/{videoId}/comments/{commentId}": {
+      "schema": "Comment",
+      "description": "Video post comments"
+    },
+    "/stories/{storyId}": {
+      "schema": "Story",
+      "description": "Ephemeral stories"
+    },
+    "/livestreams/{streamId}": {
+      "schema": "LiveStream",
+      "description": "Live streaming rooms"
+    },
+    "/chats/{chatId}/messages/{messageId}": {
+      "schema": "ChatMessage",
+      "description": "Chat messages"
+    },
+    "/reports/{reportId}": {
+      "schema": "Report",
+      "description": "User moderation reports"
+    },
+    "/appeals/{appealId}": {
+      "schema": "Appeal",
+      "description": "User suspension appeals"
+    },
+    "/announcements/{announcementId}": {
+      "schema": "Announcement",
+      "description": "Platform-wide announcements"
+    }
+  }
+}

@@ -1,0 +1,199 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    // Default catch-all denies everything
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // User profiles & user subcollections
+    match /users/{userId} {
+      allow read: if isSignedIn();
+      allow create: if isOwner(userId);
+      allow update: if isOwner(userId) || (isSignedIn() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['followers', 'following', 'likesReceived', 'isOnline', 'lastActive', 'profileViews']));
+      allow delete: if isOwner(userId);
+
+      match /notifications/{notifId} {
+        allow read, update, delete: if isOwner(userId);
+        allow create: if isSignedIn();
+      }
+
+      match /following/{followingId} {
+        allow read, write: if isOwner(userId);
+      }
+
+      match /followers/{followerId} {
+        allow read: if true;
+        allow write: if isSignedIn();
+      }
+
+      match /likedVideos/{videoId} {
+        allow read, write: if isOwner(userId);
+      }
+
+      match /savedVideos/{videoId} {
+        allow read, write: if isOwner(userId);
+      }
+
+      match /watch_history/{videoId} {
+        allow read, write: if isOwner(userId);
+      }
+
+      match /wallet_transactions/{txId} {
+        allow read: if isOwner(userId);
+        allow create: if isSignedIn();
+      }
+
+      match /tips_received/{tipId} {
+        allow read: if isOwner(userId);
+        allow create: if isSignedIn();
+      }
+    }
+
+    // Video posts & comments
+    match /videos/{videoId} {
+      allow read: if true;
+      allow create: if isSignedIn() && request.resource.data.ownerUid == request.auth.uid;
+      allow update: if (isSignedIn() && resource.data.ownerUid == request.auth.uid) ||
+                    (isSignedIn() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likeCount', 'commentCount', 'shareCount', 'saveCount', 'views', 'repostCount', 'isLiked', 'isSaved', 'isPinned', 'isArchived']));
+      allow delete: if isSignedIn() && resource.data.ownerUid == request.auth.uid;
+
+      match /comments/{commentId} {
+        allow read: if true;
+        allow create: if isSignedIn() && request.resource.data.authorUid == request.auth.uid;
+        allow update: if isSignedIn() && (resource.data.authorUid == request.auth.uid || request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likes', 'likeCount']));
+        allow delete: if isSignedIn() && (resource.data.authorUid == request.auth.uid || get(/databases/$(database)/documents/videos/$(videoId)).data.ownerUid == request.auth.uid);
+      }
+    }
+
+    // Ephemeral stories
+    match /stories/{storyId} {
+      allow read: if true;
+      allow create: if isSignedIn() && request.resource.data.ownerUid == request.auth.uid;
+      allow delete: if isSignedIn() && resource.data.ownerUid == request.auth.uid;
+    }
+
+    // Story highlights
+    match /highlights/{highlightId} {
+      allow read: if true;
+      allow write: if isSignedIn();
+    }
+
+    // Live streams & live chat
+    match /livestreams/{streamId} {
+      allow read: if true;
+      allow create: if isSignedIn() && request.resource.data.hostUid == request.auth.uid;
+      allow update: if isSignedIn();
+      allow delete: if isSignedIn() && resource.data.hostUid == request.auth.uid;
+
+      match /chat/{msgId} {
+        allow read: if true;
+        allow create: if isSignedIn();
+      }
+
+      match /gifts/{giftId} {
+        allow read: if true;
+        allow create: if isSignedIn();
+      }
+    }
+
+    match /livereplays/{replayId} {
+      allow read: if true;
+      allow write: if isSignedIn();
+    }
+
+    // Chats and messaging
+    match /chats/{chatId} {
+      allow read, write: if isSignedIn();
+
+      match /messages/{messageId} {
+        allow read, write: if isSignedIn();
+      }
+    }
+
+    match /groups/{groupId} {
+      allow read, write: if isSignedIn();
+
+      match /messages/{messageId} {
+        allow read, write: if isSignedIn();
+      }
+    }
+
+    // Direct calling signaling
+    match /calls/{callId} {
+      allow read, write: if isSignedIn();
+    }
+
+    // Follow relationships
+    match /follows/{uid}/{subcollection=**} {
+      allow read: if true;
+      allow write: if isSignedIn();
+    }
+
+    match /user_relationships/{relId} {
+      allow read, write: if isSignedIn();
+    }
+
+    // Notifications top-level routing
+    match /notifications/{uid}/items/{itemId} {
+      allow read, update, delete: if isOwner(uid);
+      allow create: if isSignedIn();
+    }
+
+    // Moderation, safety, reports & appeals
+    match /reports/{reportId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update: if isSignedIn();
+    }
+
+    match /appeals/{appealId} {
+      allow read, write: if isSignedIn();
+    }
+
+    match /owner_feedback/{feedbackId} {
+      allow read, write: if isSignedIn();
+    }
+
+    match /announcements/{announcementId} {
+      allow read: if true;
+      allow write: if isSignedIn();
+    }
+
+    match /account_deletion_requests/{reqId} {
+      allow create, read: if isSignedIn();
+    }
+
+    match /playlists/{playlistId} {
+      allow read: if true;
+      allow write: if isSignedIn();
+    }
+
+    match /scheduled_posts/{postId} {
+      allow read, write: if isSignedIn();
+    }
+
+    match /opay_topups/{topupId} {
+      allow read, write: if isSignedIn();
+    }
+
+    match /payout_requests/{reqId} {
+      allow read, write: if isSignedIn();
+    }
+
+    match /searchLogs/{logId} {
+      allow create: if isSignedIn();
+      allow read: if isSignedIn();
+    }
+  }
+}

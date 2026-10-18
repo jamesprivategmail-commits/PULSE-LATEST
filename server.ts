@@ -7,8 +7,9 @@ import cookieParser from 'cookie-parser';
 import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI } from '@google/genai';
 import Groq from 'groq-sdk';
+import { initializeApp, getApps, getApp } from 'firebase/app';
 import {
-  db,
+  getFirestore,
   collection,
   doc,
   getDoc,
@@ -22,15 +23,27 @@ import {
   orderBy,
   limit,
   increment,
-  writeBatch,
+  writeBatch
+} from 'firebase/firestore';
+import {
   readDocument,
   writeDocument,
   listDocuments
-} from './serverDb';
+} from './serverDb.ts';
 import { AccessToken } from 'livekit-server-sdk';
 
+const firebaseConfigPath = path.join(process.cwd(), 'firebase-applet-config.json');
+let db: any;
+try {
+  const firebaseConfig = JSON.parse(fs.readFileSync(firebaseConfigPath, 'utf8'));
+  const fbApp = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
+  db = getFirestore(fbApp, firebaseConfig.firestoreDatabaseId);
+} catch (e) {
+  console.warn('Could not initialize Firebase in server, fallback active:', e);
+}
+
 const app = express();
-const PORT = Number(process.env.PORT) || 3000;
+const PORT = 3000;
 
 // LiveKit Server Credentials
 const LIVEKIT_URL = process.env.LIVEKIT_URL || '';
