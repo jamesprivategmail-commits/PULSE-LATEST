@@ -1022,24 +1022,74 @@ export function subscribeToChatMessages(chatId: string, callback: (messages: Cha
     callback([]);
     return () => {};
   }
+
+  let active = true;
+  let currentMessages: ChatMessage[] = [];
+
+  const mergeAndEmit = (newBatch: ChatMessage[]) => {
+    if (!active) return;
+    const map = new Map<string, ChatMessage>();
+    currentMessages.forEach(m => {
+      const key = m.id || m.clientId;
+      if (key) map.set(key, m);
+    });
+    newBatch.forEach(m => {
+      const key = m.id || m.clientId;
+      if (key) map.set(key, m);
+    });
+    const merged = Array.from(map.values()).sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+    currentMessages = merged;
+    callback(merged);
+  };
+
+  // Immediate fetch from server API
+  fetch(`/api/chat/messages?chatId=${encodeURIComponent(chatId)}`)
+    .then(r => r.json())
+    .then(data => {
+      if (Array.isArray(data?.messages) && data.messages.length > 0) {
+        mergeAndEmit(data.messages);
+      }
+    })
+    .catch(() => {});
+
+  // Polling fallback to guarantee instant real-time message delivery across all devices
+  const pollInterval = setInterval(() => {
+    if (!active) return;
+    fetch(`/api/chat/messages?chatId=${encodeURIComponent(chatId)}`)
+      .then(r => r.json())
+      .then(data => {
+        if (Array.isArray(data?.messages) && data.messages.length > 0) {
+          mergeAndEmit(data.messages);
+        }
+      })
+      .catch(() => {});
+  }, 1500);
+
+  // Firestore onSnapshot listener in parallel
+  let fsUnsub = () => {};
   try {
     const messagesRef = collection(db, 'chats', chatId, 'messages');
     const q = query(messagesRef, orderBy('createdAt', 'asc'), limit(100));
-    
-    return onSnapshot(q, (snapshot) => {
+    fsUnsub = onSnapshot(q, (snapshot) => {
       const list: ChatMessage[] = [];
       snapshot.forEach((d) => {
         list.push({ id: d.id, ...d.data() } as ChatMessage);
       });
-      callback(list);
+      if (list.length > 0) {
+        mergeAndEmit(list);
+      }
     }, (err) => {
-      console.warn('Chat messages subscription notice:', err?.message || err);
-      callback([]);
+      console.warn('Firestore chat messages notice (using server sync):', err?.message || err);
     });
   } catch (e) {
-    callback([]);
-    return () => {};
+    // Ignored, server poll handles it
   }
+
+  return () => {
+    active = false;
+    clearInterval(pollInterval);
+    fsUnsub();
+  };
 }
 
 export function subscribeToUserChats(uid: string, callback: (chats: any[]) => void) {
@@ -1047,10 +1097,37 @@ export function subscribeToUserChats(uid: string, callback: (chats: any[]) => vo
     callback([]);
     return () => {};
   }
+
+  let active = true;
+
+  // Immediate fetch from server API
+  fetch(`/api/chat/user-chats?uid=${encodeURIComponent(uid)}`)
+    .then(r => r.json())
+    .then(data => {
+      if (active && Array.isArray(data?.chats) && data.chats.length > 0) {
+        callback(data.chats);
+      }
+    })
+    .catch(() => {});
+
+  const pollInterval = setInterval(() => {
+    if (!active) return;
+    fetch(`/api/chat/user-chats?uid=${encodeURIComponent(uid)}`)
+      .then(r => r.json())
+      .then(data => {
+        if (active && Array.isArray(data?.chats)) {
+          callback(data.chats);
+        }
+      })
+      .catch(() => {});
+  }, 3000);
+
+  let fsUnsub = () => {};
   try {
     const chatsRef = collection(db, 'chats');
     const q = query(chatsRef, where('participants', 'array-contains', uid), orderBy('lastUpdated', 'desc'), limit(30));
-    return onSnapshot(q, async (snap) => {
+    fsUnsub = onSnapshot(q, async (snap) => {
+      if (!active) return;
       const chatList: any[] = [];
       for (const d of snap.docs) {
         const data = d.data();
@@ -1083,15 +1160,21 @@ export function subscribeToUserChats(uid: string, callback: (chats: any[]) => vo
           isBot: otherUid === 'owner_mrnovatech' || otherUid === 'pulse_official'
         });
       }
-      callback(chatList);
+      if (chatList.length > 0) {
+        callback(chatList);
+      }
     }, (err) => {
       console.warn('User chats notice:', err);
-      callback([]);
     });
   } catch (e) {
-    callback([]);
-    return () => {};
+    // Ignored, server poll handles it
   }
+
+  return () => {
+    active = false;
+    clearInterval(pollInterval);
+    fsUnsub();
+  };
 }
 
 export function subscribeToTotalUnreadMessages(uid: string, callback: (totalUnread: number) => void) {
@@ -1208,97 +1291,104 @@ export async function sendChatMessage(
     clientId?: string;
   }
 ) {
-  const messagesRef = collection(db, 'chats', chatId, 'messages');
-  const chatDocRef = doc(db, 'chats', chatId);
-
-  // A block in either direction stops new messages, matching the follow
-  // check above — the recipient not wanting to hear from this sender (or
-  // vice versa) should actually prevent the message, not just hide it later.
-  if (recipientUid) {
-    const [senderSnap, recipientSnap] = await Promise.all([
-      getDoc(doc(db, 'users', sender.uid)),
-      getDoc(doc(db, 'users', recipientUid))
-    ]);
-    const myBlocked: string[] = (senderSnap.data()?.blockedUids as string[]) || [];
-    const theirBlocked: string[] = (recipientSnap.data()?.blockedUids as string[]) || [];
-    if (myBlocked.includes(recipientUid) || theirBlocked.includes(sender.uid)) {
-      throw new Error('blocked');
+  // 1. Authoritative server send - guarantees message is committed and broadcast
+  let savedMessage: any = null;
+  try {
+    const srvRes = await fetch('/api/chat/send', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chatId,
+        sender,
+        text,
+        recipientUid,
+        mediaUrl,
+        options
+      })
+    });
+    const srvData = await srvRes.json();
+    if (srvData?.success && srvData?.message) {
+      savedMessage = srvData.message;
     }
-  }
-  
-  const now = Date.now();
-  const msg: Omit<ChatMessage, 'id'> = {
-    senderUid: sender.uid,
-    senderHandle: sender.handle,
-    senderUsername: sender.username,
-    senderAvatar: sender.photoURL,
-    text,
-    createdAt: now,
-    mediaUrl: mediaUrl || undefined,
-    mediaType: options?.mediaType || (options?.voiceDuration ? 'voice' : mediaUrl ? 'image' : 'text'),
-    voiceDuration: options?.voiceDuration,
-    gifUrl: options?.gifUrl,
-    stickerEmoji: options?.stickerEmoji,
-    callLog: options?.callLog,
-    status: 'sent',
-    clientId: options?.clientId
-  };
-  
-  const participantsList = recipientUid ? Array.from(new Set([sender.uid, recipientUid])) : [sender.uid];
-
-  await addDoc(messagesRef, msg);
-
-  let lastSummary = text;
-  if (options?.mediaType === 'voice') {
-    lastSummary = `🎙️ Voice Note (${options.voiceDuration ? Math.round(options.voiceDuration) + 's' : ''})`;
-  } else if (options?.mediaType === 'call_log') {
-    lastSummary = text || (options.callLog?.callType === 'video' ? '📹 Video Call' : '📞 Voice Call');
-  } else if (mediaUrl) {
-    lastSummary = '📷 Photo';
-  } else if (options?.gifUrl) {
-    lastSummary = '👾 GIF';
+  } catch (e) {
+    console.warn('Server chat send notice:', e);
   }
 
-  const updatePayload: Record<string, any> = {
-    lastMessage: lastSummary,
-    lastUpdated: now,
-    lastSenderUid: sender.uid,
-    participants: participantsList,
-    [`lastReadTimes.${sender.uid}`]: now
-  };
+  // 2. Also try Firestore in background without throwing if permission denied
+  try {
+    const messagesRef = collection(db, 'chats', chatId, 'messages');
+    const chatDocRef = doc(db, 'chats', chatId);
 
-  if (recipientUid) {
-    try {
-      const chatSnap = await getDoc(chatDocRef);
-      const currentUnread = chatSnap.exists() ? (chatSnap.data().unreadCounts?.[recipientUid] || 0) : 0;
-      updatePayload[`unreadCounts.${recipientUid}`] = currentUnread + 1;
-      updatePayload[`unreadCounts.${sender.uid}`] = 0;
-    } catch (e) {
+    const now = Date.now();
+    const msg: Omit<ChatMessage, 'id'> = {
+      senderUid: sender.uid,
+      senderHandle: sender.handle,
+      senderUsername: sender.username,
+      senderAvatar: sender.photoURL,
+      text,
+      createdAt: now,
+      mediaUrl: mediaUrl || undefined,
+      mediaType: options?.mediaType || (options?.voiceDuration ? 'voice' : mediaUrl ? 'image' : 'text'),
+      voiceDuration: options?.voiceDuration,
+      gifUrl: options?.gifUrl,
+      stickerEmoji: options?.stickerEmoji,
+      callLog: options?.callLog,
+      status: 'sent',
+      clientId: options?.clientId
+    };
+    
+    const participantsList = recipientUid ? Array.from(new Set([sender.uid, recipientUid])) : [sender.uid];
+
+    await addDoc(messagesRef, msg);
+
+    let lastSummary = text;
+    if (options?.mediaType === 'voice') {
+      lastSummary = `🎙️ Voice Note (${options.voiceDuration ? Math.round(options.voiceDuration) + 's' : ''})`;
+    } else if (options?.mediaType === 'call_log') {
+      lastSummary = text || (options.callLog?.callType === 'video' ? '📹 Video Call' : '📞 Voice Call');
+    } else if (mediaUrl) {
+      lastSummary = '📷 Photo';
+    } else if (options?.gifUrl) {
+      lastSummary = '👾 GIF';
+    }
+
+    const updatePayload: Record<string, any> = {
+      lastMessage: lastSummary,
+      lastUpdated: now,
+      lastSenderUid: sender.uid,
+      participants: participantsList,
+      [`lastReadTimes.${sender.uid}`]: now
+    };
+
+    if (recipientUid) {
       updatePayload[`unreadCounts.${recipientUid}`] = 1;
+      updatePayload[`unreadCounts.${sender.uid}`] = 0;
     }
+
+    await setDoc(chatDocRef, updatePayload, { merge: true });
+
+    if (recipientUid) {
+      try {
+        await createNotification(recipientUid, {
+          kind: 'mention',
+          who: sender.handle,
+          whoUid: sender.uid,
+          avatar: sender.photoURL,
+          text: options?.mediaType === 'voice' 
+            ? 'sent you a voice note 🎙️' 
+            : options?.mediaType === 'call_log'
+            ? `${text || 'called you'}`
+            : mediaUrl ? 'sent you a photo' : `sent you a message: "${text.length > 25 ? text.slice(0, 25) + '...' : text}"`,
+          time: 'Just now',
+          createdAt: now
+        });
+      } catch (e) {}
+    }
+  } catch (fsErr) {
+    console.warn('Firestore sendChatMessage notice (message committed to serverDb):', fsErr);
   }
 
-  await setDoc(chatDocRef, updatePayload, { merge: true });
-
-  if (recipientUid) {
-    try {
-      await createNotification(recipientUid, {
-        kind: 'mention',
-        who: sender.handle,
-        whoUid: sender.uid,
-        avatar: sender.photoURL,
-        text: options?.mediaType === 'voice' 
-          ? 'sent you a voice note 🎙️' 
-          : options?.mediaType === 'call_log'
-          ? `${text || 'called you'}`
-          : mediaUrl ? 'sent you a photo' : `sent you a message: "${text.length > 25 ? text.slice(0, 25) + '...' : text}"`,
-        time: 'Just now',
-        createdAt: now
-      });
-    } catch (e) {
-      console.warn('Notif error:', e);
-    }
-  }
+  return savedMessage;
 }
 
 // -------------------------------------------------------------

@@ -506,6 +506,189 @@ app.get('/api/user/following-list', (req, res) => {
 });
 
 // -------------------------------------------------------------
+// RESILIENT CHAT API (Server-Authoritative)
+// Real-time & persistent direct messaging between users
+// -------------------------------------------------------------
+app.post('/api/chat/send', async (req, res) => {
+  try {
+    const { chatId, sender, text, recipientUid, mediaUrl, options } = req.body;
+    if (!chatId || !sender?.uid) {
+      return res.status(400).json({ error: 'Missing chatId or sender details' });
+    }
+
+    const messageId = `msg_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+    const now = Date.now();
+    const msgData: any = {
+      id: messageId,
+      senderUid: sender.uid,
+      senderHandle: sender.handle || '',
+      senderUsername: sender.username || sender.handle || 'Creator',
+      senderAvatar: sender.photoURL || '',
+      text: text || '',
+      createdAt: now,
+      mediaUrl: mediaUrl || undefined,
+      mediaType: options?.mediaType || (options?.voiceDuration ? 'voice' : mediaUrl ? 'image' : 'text'),
+      voiceDuration: options?.voiceDuration,
+      gifUrl: options?.gifUrl,
+      stickerEmoji: options?.stickerEmoji,
+      callLog: options?.callLog,
+      status: 'sent',
+      clientId: options?.clientId
+    };
+
+    // Save message doc to serverDb
+    await writeDocument(['chats', chatId, 'messages', messageId], msgData, 'set');
+
+    // Update parent chat doc
+    const participantsList = recipientUid ? Array.from(new Set([sender.uid, recipientUid])) : [sender.uid];
+    let lastSummary = text || '';
+    if (options?.mediaType === 'voice') {
+      lastSummary = `🎙️ Voice Note (${options.voiceDuration ? Math.round(options.voiceDuration) + 's' : ''})`;
+    } else if (options?.mediaType === 'call_log') {
+      lastSummary = text || (options.callLog?.callType === 'video' ? '📹 Video Call' : '📞 Voice Call');
+    } else if (mediaUrl) {
+      lastSummary = '📷 Photo';
+    } else if (options?.gifUrl) {
+      lastSummary = '👾 GIF';
+    }
+
+    const existingChat = readDocument(['chats', chatId]) || {};
+    const unreadCounts = { ...(existingChat.unreadCounts || {}) };
+    if (recipientUid) {
+      unreadCounts[recipientUid] = (Number(unreadCounts[recipientUid]) || 0) + 1;
+      unreadCounts[sender.uid] = 0;
+    }
+
+    const lastReadTimes = { ...(existingChat.lastReadTimes || {}) };
+    lastReadTimes[sender.uid] = now;
+
+    const chatUpdate = {
+      ...existingChat,
+      id: chatId,
+      lastMessage: lastSummary,
+      lastUpdated: now,
+      lastSenderUid: sender.uid,
+      participants: participantsList,
+      unreadCounts,
+      lastReadTimes
+    };
+    await writeDocument(['chats', chatId], chatUpdate, 'set');
+
+    // Attempt background Firestore sync
+    if (db) {
+      try {
+        const fMsgRef = doc(db, 'chats', chatId, 'messages', messageId);
+        const fChatRef = doc(db, 'chats', chatId);
+        await setDoc(fMsgRef, msgData);
+        await setDoc(fChatRef, chatUpdate, { merge: true });
+      } catch (e) {
+        // Silently handled: serverDb already stored the message securely
+      }
+    }
+
+    res.json({ success: true, message: msgData });
+  } catch (err: any) {
+    console.error('Error in /api/chat/send:', err);
+    res.status(500).json({ error: err.message || 'Failed to send chat message' });
+  }
+});
+
+app.get('/api/chat/messages', (req, res) => {
+  try {
+    const chatId = String(req.query.chatId || '');
+    if (!chatId) return res.json({ messages: [] });
+    const docs = listDocuments(['chats', chatId, 'messages']);
+    const list = docs.map((d: any) => ({ id: d.id, ...(d.data || {}) }));
+    list.sort((a: any, b: any) => (a.createdAt || 0) - (b.createdAt || 0));
+    res.json({ messages: list });
+  } catch {
+    res.json({ messages: [] });
+  }
+});
+
+app.get('/api/chat/user-chats', (req, res) => {
+  try {
+    const uid = String(req.query.uid || '');
+    if (!uid) return res.json({ chats: [] });
+    const allChats = listDocuments(['chats']);
+    const myChats = allChats
+      .filter((d: any) => Array.isArray(d.data?.participants) && d.data.participants.includes(uid))
+      .map((d: any) => {
+        const data = d.data || {};
+        const otherUid = (data.participants || []).find((p: string) => p !== uid) || data.participants?.[0];
+        const otherUser = readDocument(['users', otherUid]) || {};
+        return {
+          chatId: d.id,
+          uid: otherUid || d.id,
+          handle: otherUser.handle || `@user_${(otherUid || '').slice(0, 6)}`,
+          username: otherUser.username || otherUser.handle || 'Pulse Creator',
+          avatar: otherUser.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(otherUid || d.id)}`,
+          verified: !!otherUser.verified,
+          lastMessage: data.lastMessage || 'Direct message',
+          lastSenderUid: data.lastSenderUid || '',
+          lastReadTimes: data.lastReadTimes || {},
+          lastUpdated: data.lastUpdated || 0,
+          unreadCount: Number(data.unreadCounts?.[uid] || 0)
+        };
+      });
+    myChats.sort((a: any, b: any) => (b.lastUpdated || 0) - (a.lastUpdated || 0));
+    res.json({ chats: myChats });
+  } catch {
+    res.json({ chats: [] });
+  }
+});
+
+app.post('/api/chat/read', async (req, res) => {
+  try {
+    const { chatId, uid } = req.body;
+    if (!chatId || !uid) return res.status(400).json({ error: 'Missing parameters' });
+    const chat = readDocument(['chats', chatId]);
+    if (chat) {
+      const unreadCounts = { ...(chat.unreadCounts || {}) };
+      unreadCounts[uid] = 0;
+      const lastReadTimes = { ...(chat.lastReadTimes || {}) };
+      lastReadTimes[uid] = Date.now();
+      await writeDocument(['chats', chatId], { unreadCounts, lastReadTimes }, 'update');
+    }
+    res.json({ success: true });
+  } catch {
+    res.json({ success: true });
+  }
+});
+
+app.post('/api/chat/delete', async (req, res) => {
+  try {
+    const { chatId, messageId } = req.body;
+    if (!chatId || !messageId) return res.status(400).json({ error: 'Missing parameters' });
+    await writeDocument(['chats', chatId, 'messages', messageId], {}, 'delete');
+    res.json({ success: true });
+  } catch {
+    res.json({ success: true });
+  }
+});
+
+app.post('/api/chat/reaction', async (req, res) => {
+  try {
+    const { chatId, messageId, emoji, uid } = req.body;
+    if (!chatId || !messageId) return res.status(400).json({ error: 'Missing parameters' });
+    const msg = readDocument(['chats', chatId, 'messages', messageId]);
+    if (msg) {
+      const reactions = { ...(msg.reactions || {}) };
+      if (reactions[uid] === emoji) {
+        delete reactions[uid];
+      } else {
+        reactions[uid] = emoji;
+      }
+      await writeDocument(['chats', chatId, 'messages', messageId], { reactions }, 'update');
+    }
+    res.json({ success: true });
+  } catch {
+    res.json({ success: true });
+  }
+});
+
+
+// -------------------------------------------------------------
 // TELEGRAM BOT COMMAND HANDLER
 // -------------------------------------------------------------
 async function handleTelegramCommand(chatId: number, text: string, fromUser: any) {

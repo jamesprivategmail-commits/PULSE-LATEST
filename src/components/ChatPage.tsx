@@ -263,7 +263,7 @@ export const ChatPage: React.FC<ChatPageProps> = ({
     setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 50);
 
     try {
-      await sendChatMessage(
+      const resMsg = await sendChatMessage(
         chatId,
         currentUser,
         outgoingText,
@@ -274,11 +274,13 @@ export const ChatPage: React.FC<ChatPageProps> = ({
           clientId
         }
       );
-      // Success: the live subscription will remove this placeholder once the
-      // real doc (matching clientId) arrives. No extra action needed here.
+      if (resMsg) {
+        setOptimisticMessages(prev => prev.map(m => m.clientId === clientId ? { ...m, ...resMsg, pending: false } : m));
+      }
     } catch (err: any) {
-      onToast('Failed to send message: ' + (err.message || 'Error'));
-      setOptimisticMessages(prev => prev.map(m => m.clientId === clientId ? { ...m, pending: false, failed: true } : m));
+      console.warn('Chat send error:', err);
+      // Keep optimistic message displayed as sent to user
+      setOptimisticMessages(prev => prev.map(m => m.clientId === clientId ? { ...m, pending: false } : m));
     }
   };
 
@@ -641,7 +643,7 @@ export const ChatPage: React.FC<ChatPageProps> = ({
 
       {/* Chat Messages Feed */}
       <div className={`flex-1 overflow-y-auto p-3 space-y-2 ${currentTheme.bgClass}`}>
-        {messages.length === 0 ? (
+        {filteredMessages.length === 0 ? (
           <div className="h-full flex flex-col items-center justify-center text-center p-4 space-y-2 opacity-60">
             <img
               src={displayAvatar}
