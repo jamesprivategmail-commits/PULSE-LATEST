@@ -387,3 +387,11 @@ html, body, #root {
   backface-visibility: hidden;
 }
 
+/* Prevent mobile keyboard auto-zoom and distorted viewport overlays */
+@media (max-width: 768px) {
+  input:not([type="checkbox"]):not([type="radio"]),
+  textarea,
+  select {
+    font-size: 16px !important;
+  }
+}

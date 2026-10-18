@@ -140,7 +140,7 @@ export const CommentsSheet: React.FC<CommentsSheetProps> = ({
       {/* Sheet Container */}
       <div
         id="commentsSheet"
-        className="fixed bottom-0 left-0 right-0 max-w-[480px] mx-auto h-[68vh] bg-black rounded-t-xl z-50 flex flex-col border-t border-white/10 shadow-2xl animate-in slide-in-from-bottom duration-200"
+        className="fixed bottom-0 left-0 right-0 max-w-[480px] mx-auto max-h-[85dvh] h-[68dvh] bg-black rounded-t-xl z-50 flex flex-col border-t border-white/10 shadow-2xl animate-in slide-in-from-bottom duration-200 overscroll-contain pb-[env(safe-area-inset-bottom)]"
       >
         {/* Header */}
         <div className="flex items-center justify-between px-3.5 py-2.5 border-b border-white/10 shrink-0 bg-neutral-950">

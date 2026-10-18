@@ -11,68 +11,98 @@ service cloud.firestore {
       return isSignedIn() && request.auth.uid == userId;
     }
 
-    // Default catch-all denies everything
+    // Default catch-all denies everything unless explicitly allowed below
     match /{document=**} {
       allow read, write: if false;
     }
 
+    // Connection test doc
+    match /test/{testId} {
+      allow read, write: if true;
+    }
+
     // User profiles & user subcollections
     match /users/{userId} {
-      allow read: if isSignedIn();
-      allow create: if isOwner(userId);
-      allow update: if isOwner(userId) || (isSignedIn() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['followers', 'following', 'likesReceived', 'isOnline', 'lastActive', 'profileViews']));
-      allow delete: if isOwner(userId);
+      // Public profiles: any user (including visitors) can read profiles to view creators & feeds
+      allow read: if true;
+      allow create: if isSignedIn() && request.auth.uid == userId;
+      // Allow user to update their own profile, or other signed-in users to update engagement counters
+      allow update: if (isSignedIn() && request.auth.uid == userId) ||
+                    (isSignedIn() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['followers', 'following', 'likesReceived', 'isOnline', 'lastActive', 'profileViews', 'blockedUids', 'walletDiamonds', 'totalEarningsUSD']));
+      allow delete: if isSignedIn() && request.auth.uid == userId;
 
       match /notifications/{notifId} {
-        allow read, update, delete: if isOwner(userId);
+        allow read, update, delete: if isSignedIn() && request.auth.uid == userId;
         allow create: if isSignedIn();
       }
 
       match /following/{followingId} {
-        allow read, write: if isOwner(userId);
+        allow read: if true;
+        allow write: if isSignedIn() && (request.auth.uid == userId || request.auth.uid == followingId);
       }
 
       match /followers/{followerId} {
         allow read: if true;
-        allow write: if isSignedIn();
+        allow write: if isSignedIn() && (request.auth.uid == userId || request.auth.uid == followerId);
       }
 
       match /likedVideos/{videoId} {
-        allow read, write: if isOwner(userId);
+        allow read, write: if isSignedIn() && request.auth.uid == userId;
       }
 
       match /savedVideos/{videoId} {
-        allow read, write: if isOwner(userId);
+        allow read, write: if isSignedIn() && request.auth.uid == userId;
+      }
+
+      match /reposts/{repostId} {
+        allow read: if true;
+        allow write: if isSignedIn() && request.auth.uid == userId;
       }
 
       match /watch_history/{videoId} {
-        allow read, write: if isOwner(userId);
+        allow read, write: if isSignedIn() && request.auth.uid == userId;
       }
 
       match /wallet_transactions/{txId} {
-        allow read: if isOwner(userId);
+        allow read: if isSignedIn() && request.auth.uid == userId;
         allow create: if isSignedIn();
       }
 
       match /tips_received/{tipId} {
-        allow read: if isOwner(userId);
+        allow read: if isSignedIn() && request.auth.uid == userId;
         allow create: if isSignedIn();
       }
     }
 
-    // Video posts & comments
+    // Video posts & comments & likes
     match /videos/{videoId} {
       allow read: if true;
-      allow create: if isSignedIn() && request.resource.data.ownerUid == request.auth.uid;
+      allow create: if isSignedIn();
       allow update: if (isSignedIn() && resource.data.ownerUid == request.auth.uid) ||
                     (isSignedIn() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likeCount', 'commentCount', 'shareCount', 'saveCount', 'views', 'repostCount', 'isLiked', 'isSaved', 'isPinned', 'isArchived']));
       allow delete: if isSignedIn() && resource.data.ownerUid == request.auth.uid;
 
+      match /likes/{likeId} {
+        allow read: if true;
+        allow write: if isSignedIn();
+      }
+
       match /comments/{commentId} {
         allow read: if true;
-        allow create: if isSignedIn() && request.resource.data.authorUid == request.auth.uid;
-        allow update: if isSignedIn() && (resource.data.authorUid == request.auth.uid || request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likes', 'likeCount']));
-        allow delete: if isSignedIn() && (resource.data.authorUid == request.auth.uid || get(/databases/$(database)/documents/videos/$(videoId)).data.ownerUid == request.auth.uid);
+        allow create: if isSignedIn() && (
+          (request.resource.data.uid != null && request.resource.data.uid == request.auth.uid) ||
+          (request.resource.data.authorUid != null && request.resource.data.authorUid == request.auth.uid)
+        );
+        allow update: if isSignedIn() && (
+          (resource.data.uid != null && resource.data.uid == request.auth.uid) ||
+          (resource.data.authorUid != null && resource.data.authorUid == request.auth.uid) ||
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likes', 'likeCount', 'isPinned'])
+        );
+        allow delete: if isSignedIn() && (
+          (resource.data.uid != null && resource.data.uid == request.auth.uid) ||
+          (resource.data.authorUid != null && resource.data.authorUid == request.auth.uid) ||
+          get(/databases/$(database)/documents/videos/$(videoId)).data.ownerUid == request.auth.uid
+        );
       }
     }
 
@@ -80,6 +110,7 @@ service cloud.firestore {
     match /stories/{storyId} {
       allow read: if true;
       allow create: if isSignedIn() && request.resource.data.ownerUid == request.auth.uid;
+      allow update: if isSignedIn();
       allow delete: if isSignedIn() && resource.data.ownerUid == request.auth.uid;
     }
 
@@ -89,7 +120,7 @@ service cloud.firestore {
       allow write: if isSignedIn();
     }
 
-    // Live streams & live chat
+    // Live streams & live chat & gifts
     match /livestreams/{streamId} {
       allow read: if true;
       allow create: if isSignedIn() && request.resource.data.hostUid == request.auth.uid;
@@ -152,9 +183,7 @@ service cloud.firestore {
 
     // Moderation, safety, reports & appeals
     match /reports/{reportId} {
-      allow read: if isSignedIn();
-      allow create: if isSignedIn();
-      allow update: if isSignedIn();
+      allow read, create, update: if isSignedIn();
     }
 
     match /appeals/{appealId} {
@@ -192,8 +221,11 @@ service cloud.firestore {
     }
 
     match /searchLogs/{logId} {
-      allow create: if isSignedIn();
-      allow read: if isSignedIn();
+      allow create, read: if true;
+    }
+
+    match /familyPairings/{code} {
+      allow read, write: if isSignedIn();
     }
   }
 }
