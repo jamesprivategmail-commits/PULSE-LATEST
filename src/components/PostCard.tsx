@@ -125,7 +125,7 @@ export const PostCard: React.FC<PostCardProps> = ({
     setLiked(next);
     setLikeCount(c => Math.max(0, c + (next ? 1 : -1)));
     try {
-      const persisted = await toggleVideoLike(video.id, currentUser);
+      const persisted = await toggleVideoLike(video.id, currentUser, next);
       setLiked(persisted);
     } catch {
       // Retain optimistic like state

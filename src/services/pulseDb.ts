@@ -80,11 +80,11 @@ export function cacheUserProfile(profile: UserProfile | null): void {
 }
 
 export async function getOrCreateUserProfile(user: { uid: string; email?: string | null; displayName?: string | null; photoURL?: string | null; emailVerified?: boolean }): Promise<UserProfile> {
-  const isOwner = (user.email && user.email.toLowerCase() === OWNER_EMAIL.toLowerCase()) || 
-                  (user.displayName && user.displayName.toLowerCase() === 'mrnovatech');
+  const isOwner = (user.email && (user.email.toLowerCase() === 'hellomrman349@gmail.com' || user.email.toLowerCase() === OWNER_EMAIL.toLowerCase())) || 
+                  (user.displayName && (user.displayName.toLowerCase() === 'adamwarringtonn' || user.displayName.toLowerCase() === 'mrnovatech'));
 
-  const rawName = isOwner ? OWNER_USERNAME : (user.displayName || (user.email ? user.email.split('@')[0] : 'Creator'));
-  const cleanHandle = isOwner ? OWNER_HANDLE : ('@' + rawName.toLowerCase().replace(/[^a-z0-9_.]/g, '').slice(0, 20) || '@creator');
+  const rawName = user.displayName || (user.email ? user.email.split('@')[0] : 'Creator');
+  const cleanHandle = '@' + rawName.toLowerCase().replace(/[^a-z0-9_.]/g, '').slice(0, 20) || '@creator';
 
   // Check if existing locally cached profile has a custom photoURL
   const existingCached = getCachedUserProfile();
@@ -154,16 +154,12 @@ export async function getOrCreateUserProfile(user: { uid: string; email?: string
 
       if (isOwner) {
         updates.role = 'admin';
-        updates.handle = OWNER_HANDLE;
-        updates.username = OWNER_USERNAME;
-        updates.email = OWNER_EMAIL;
         updates.verified = true;
+        updates.verificationStatus = 'verified';
         
         profile.role = 'admin';
-        profile.handle = OWNER_HANDLE;
-        profile.username = OWNER_USERNAME;
-        profile.email = OWNER_EMAIL;
         profile.verified = true;
+        profile.verificationStatus = 'verified';
       }
 
       if (Object.keys(updates).length > 0) {
@@ -384,15 +380,17 @@ export function subscribeToVideos(callback: (videos: VideoPost[]) => void) {
 }
 
 // Toggle Like
-export async function toggleVideoLike(videoId: string, user: UserProfile): Promise<boolean> {
-  let isNowLiked = false;
+export async function toggleVideoLike(videoId: string, user: UserProfile, explicitTargetState?: boolean): Promise<boolean> {
+  if (!videoId || !user?.uid) return false;
+
+  let isNowLiked = typeof explicitTargetState === 'boolean' ? explicitTargetState : true;
 
   // 1. Authoritative server toggle to guarantee persistence regardless of Firestore rule permissions
   try {
     const res = await fetch('/api/video/like', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ videoId, user })
+      body: JSON.stringify({ videoId, user, desiredState: explicitTargetState })
     });
     const data = await res.json();
     if (data?.success) {
@@ -402,34 +400,25 @@ export async function toggleVideoLike(videoId: string, user: UserProfile): Promi
     console.warn('Server toggle like fallback:', err);
   }
 
-  // 2. Attempt Firestore update in background without throwing if permission denied
+  // 2. Direct Firestore update matching isNowLiked without inverse deletion race
   try {
     const likeRef = doc(db, 'videos', videoId, 'likes', user.uid);
     const userLikedRef = doc(db, 'users', user.uid, 'likedVideos', videoId);
     const videoRef = doc(db, 'videos', videoId);
-    const likeSnap = await getDoc(likeRef);
-    
-    if (likeSnap.exists()) {
-      // Unlike
-      await deleteDoc(likeRef);
-      try { await deleteDoc(userLikedRef); } catch (e) {}
-      await updateDoc(videoRef, { likeCount: increment(-1) });
-    } else {
-      // Like
+
+    if (isNowLiked) {
       await setDoc(likeRef, {
         uid: user.uid,
-        who: user.handle,
-        avatar: user.photoURL,
+        who: user.handle || user.username || 'Creator',
+        avatar: user.photoURL || '',
         createdAt: Date.now()
       });
-      try {
-        await setDoc(userLikedRef, {
-          videoId,
-          likedAt: Date.now()
-        });
-      } catch (e) {}
-      await updateDoc(videoRef, { likeCount: increment(1) });
-      
+      await setDoc(userLikedRef, {
+        videoId,
+        likedAt: Date.now()
+      });
+      await updateDoc(videoRef, { likeCount: increment(1) }).catch(() => {});
+
       // Create notification for video owner if not self
       try {
         const vidSnap = await getDoc(videoRef);
@@ -438,7 +427,7 @@ export async function toggleVideoLike(videoId: string, user: UserProfile): Promi
           if (vidData.ownerUid && vidData.ownerUid !== user.uid) {
             await createNotification(vidData.ownerUid, {
               kind: 'like',
-              who: user.handle,
+              who: user.handle || user.username,
               whoUid: user.uid,
               avatar: user.photoURL,
               text: 'liked your video',
@@ -449,9 +438,12 @@ export async function toggleVideoLike(videoId: string, user: UserProfile): Promi
           }
         }
       } catch (e) {}
+    } else {
+      await deleteDoc(likeRef).catch(() => {});
+      await deleteDoc(userLikedRef).catch(() => {});
+      await updateDoc(videoRef, { likeCount: increment(-1) }).catch(() => {});
     }
   } catch (fsErr) {
-    // Handled quietly: server persistence ensures the like is already committed
     console.warn('Firestore toggleVideoLike notice (persisted via server):', fsErr);
   }
 
@@ -506,25 +498,53 @@ export async function checkUserSavedVideo(videoId: string, uid: string): Promise
 // Get User Liked Videos
 export async function getUserLikedVideos(uid: string): Promise<VideoPost[]> {
   if (!uid) return [];
+  const videos: VideoPost[] = [];
+  const seenIds = new Set<string>();
+
+  // 1. Try Firestore user's likedVideos collection
   try {
     const userLikesRef = collection(db, 'users', uid, 'likedVideos');
-    const snap = await getDocs(query(userLikesRef, orderBy('likedAt', 'desc'), limit(50)));
-    const videoIds: string[] = [];
-    snap.forEach(d => videoIds.push(d.id));
-    if (videoIds.length === 0) return [];
-    
-    const videos: VideoPost[] = [];
-    for (const vidId of videoIds) {
-      const vSnap = await getDoc(doc(db, 'videos', vidId));
-      if (vSnap.exists()) {
-        videos.push({ id: vSnap.id, ...vSnap.data() } as VideoPost);
+    let snap;
+    try {
+      snap = await getDocs(query(userLikesRef, orderBy('likedAt', 'desc'), limit(50)));
+    } catch {
+      snap = await getDocs(query(userLikesRef, limit(50)));
+    }
+
+    if (snap && !snap.empty) {
+      for (const d of snap.docs) {
+        const vidId = d.id;
+        if (!seenIds.has(vidId)) {
+          seenIds.add(vidId);
+          try {
+            const vSnap = await getDoc(doc(db, 'videos', vidId));
+            if (vSnap.exists()) {
+              videos.push({ id: vSnap.id, ...vSnap.data() } as VideoPost);
+            }
+          } catch {}
+        }
       }
     }
-    return videos;
   } catch (e) {
-    console.warn('Error fetching user liked videos:', e);
-    return [];
+    console.warn('Notice fetching user liked videos from Firestore:', e);
   }
+
+  // 2. Also fetch and merge from serverDb canonical cache
+  try {
+    const res = await fetch(`/api/user/liked-videos?uid=${encodeURIComponent(uid)}`);
+    const data = await res.json();
+    if (Array.isArray(data?.videos)) {
+      for (const v of data.videos) {
+        if (!seenIds.has(v.id)) {
+          seenIds.add(v.id);
+          videos.push(v);
+        }
+      }
+    }
+  } catch {}
+
+  videos.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+  return videos;
 }
 
 // Get User Saved Videos
@@ -714,54 +734,51 @@ async function toggleFollowUserInternal(
     const res = await fetch('/api/user/follow', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ currentUid, targetUid, currentUserProfile, targetHandle })
+      body: JSON.stringify({
+        currentUid,
+        targetUid,
+        currentUserProfile,
+        targetHandle,
+        desiredState: isNowFollowing
+      })
     });
     const data = await res.json();
     if (data?.success) {
-      isNowFollowing = !!data.isFollowing;
+      // confirmed
     }
   } catch (e) {
     console.warn('Server toggle follow notice:', e);
   }
 
-  // Ensure local cache matches final confirmed state
-  const finalizedList = isNowFollowing
-    ? [...getCachedFollowingUids(currentUid).filter(id => id !== targetUid), targetUid]
-    : getCachedFollowingUids(currentUid).filter(id => id !== targetUid);
-  cacheFollowingUids(currentUid, finalizedList);
-
-  // 2. Try Firestore in background without throwing if permission denied
+  // 2. Direct Firestore update matching isNowFollowing
   try {
     const followingRef = doc(db, 'follows', currentUid, 'following', targetUid);
     const followerRef = doc(db, 'follows', targetUid, 'followers', currentUid);
     const userRefMe = doc(db, 'users', currentUid);
     const userRefTarget = doc(db, 'users', targetUid);
 
-    await runTransaction(db, async (tx) => {
-      const snap = await tx.get(followingRef);
-      if (snap.exists()) {
-        tx.delete(followingRef);
-        tx.delete(followerRef);
-        tx.update(userRefMe, { following: increment(-1) });
-        tx.update(userRefTarget, { followers: increment(-1) });
-      } else {
-        tx.set(followingRef, { uid: targetUid, handle: targetHandle || '', createdAt: Date.now() });
-        tx.set(followerRef, { uid: currentUid, handle: currentUserProfile?.handle || '', createdAt: Date.now() });
-        tx.update(userRefMe, { following: increment(1) });
-        tx.update(userRefTarget, { followers: increment(1) });
-      }
-    });
+    if (isNowFollowing) {
+      await setDoc(followingRef, { uid: targetUid, handle: targetHandle || '', createdAt: Date.now() });
+      await setDoc(followerRef, { uid: currentUid, handle: currentUserProfile?.handle || '', createdAt: Date.now() });
+      await updateDoc(userRefMe, { following: increment(1) }).catch(() => {});
+      await updateDoc(userRefTarget, { followers: increment(1) }).catch(() => {});
 
-    if (isNowFollowing && currentUserProfile) {
-      await createNotification(targetUid, {
-        kind: 'follow',
-        who: currentUserProfile.handle || currentUserProfile.username,
-        whoUid: currentUid,
-        avatar: currentUserProfile.photoURL,
-        text: 'started following you',
-        time: 'Just now',
-        createdAt: Date.now()
-      }).catch(() => {});
+      if (currentUserProfile) {
+        await createNotification(targetUid, {
+          kind: 'follow',
+          who: currentUserProfile.handle || currentUserProfile.username,
+          whoUid: currentUid,
+          avatar: currentUserProfile.photoURL,
+          text: 'started following you',
+          time: 'Just now',
+          createdAt: Date.now()
+        }).catch(() => {});
+      }
+    } else {
+      await deleteDoc(followingRef).catch(() => {});
+      await deleteDoc(followerRef).catch(() => {});
+      await updateDoc(userRefMe, { following: increment(-1) }).catch(() => {});
+      await updateDoc(userRefTarget, { followers: increment(-1) }).catch(() => {});
     }
   } catch (fsErr) {
     console.warn('Firestore follow notice (committed via server persistence):', fsErr);

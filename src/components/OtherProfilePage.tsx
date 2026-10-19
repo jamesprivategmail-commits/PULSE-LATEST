@@ -10,7 +10,8 @@ import {
   blockUser,
   unblockUser,
   subscribeToUserProfile,
-  sendTipToCreator
+  sendTipToCreator,
+  getUserLikedVideos
 } from '../services/pulseDb';
 import { formatCount } from '../utils/formatters';
 import { 
@@ -81,6 +82,14 @@ export const OtherProfilePage: React.FC<OtherProfilePageProps> = ({
   const [viewerVideoIndex, setViewerVideoIndex] = useState<number | null>(null);
   const [showGiftPicker, setShowGiftPicker] = useState(false);
   const [showWalletModal, setShowWalletModal] = useState(false);
+  const [activeTab, setActiveTab] = useState<'videos' | 'media' | 'liked'>('videos');
+  const [likedVideos, setLikedVideos] = useState<VideoPost[]>([]);
+
+  useEffect(() => {
+    if (activeTab === 'liked' && profile?.uid) {
+      getUserLikedVideos(profile.uid).then(setLikedVideos).catch(() => {});
+    }
+  }, [activeTab, profile?.uid]);
 
   const handleSendTip = async (gift: VirtualGift) => {
     if (!currentUser || !profile) return;
@@ -203,119 +212,129 @@ export const OtherProfilePage: React.FC<OtherProfilePageProps> = ({
   const avatar = profile?.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(handle || 'creator')}`;
   const isLockedPrivate = profile?.isPrivate && !isFollowing && currentUser?.uid !== profile?.uid;
 
+  const activeVideos = videos.filter(v => !v.isArchived);
+  const mediaVideos = activeVideos.filter(v => v.mediaType === 'image' || v.mediaType === 'carousel');
+  const currentDisplayVideos = activeTab === 'videos' ? activeVideos : activeTab === 'media' ? mediaVideos : likedVideos;
+
   return (
-    <div className="fixed inset-0 z-50 bg-black text-white max-w-[480px] mx-auto flex flex-col overflow-y-auto animate-in fade-in select-none font-sans">
-      {/* 1. Header (Tight, Pure Black) */}
-      <div className="px-header sticky top-0 z-30">
-        <button
-          onClick={onClose}
-          className="px-icon-btn"
-        >
-          <ArrowLeft className="w-[18px] h-[18px]" />
-        </button>
+    <div className="fixed inset-0 z-50 bg-black text-white overflow-y-auto pb-20 max-w-[780px] mx-auto select-none font-sans flex flex-col animate-in fade-in">
+      {/* 1. Cover Banner & Floating Navigation Header */}
+      <div className="relative h-[180px] overflow-hidden bg-[radial-gradient(circle_at_75%_20%,rgba(255,189,26,.2),transparent_27%),radial-gradient(circle_at_20%_30%,rgba(74,140,255,.15),transparent_30%),linear-gradient(125deg,#1c1c1e,#080809_65%)] shrink-0">
+        {profile?.coverUrl && <img src={profile.coverUrl} alt="" className="absolute inset-0 w-full h-full object-cover" />}
+        <div className="absolute inset-0 bg-gradient-to-b from-transparent to-black/90" />
 
-        <div className="flex items-center gap-1 min-w-0">
-          <span className="font-extrabold text-sm truncate" style={{ color: 'var(--text)' }}>
-            {profile?.username || handle}
-          </span>
-          {profile?.verified && <VerifiedBadge size="xs" />}
-        </div>
-
-        <div className="flex items-center gap-1">
+        {/* Floating Top Nav (Back, Share, More) */}
+        <div className="absolute top-0 inset-x-0 z-30 flex items-center justify-between p-3">
           <button
-            onClick={() => {
-              navigator.clipboard?.writeText(window.location.href);
-              onToast('Link copied 🔗');
-            }}
-            className="px-icon-btn"
+            onClick={onClose}
+            className="w-10 h-10 rounded-[13px] grid place-items-center bg-black/60 backdrop-blur-md text-white hover:bg-black/80 transition-colors cursor-pointer border border-white/10"
+            title="Back"
           >
-            <Share2 className="w-[18px] h-[18px]" />
+            <ArrowLeft className="w-5 h-5" />
           </button>
-          <div className="relative">
+
+          <div className="flex items-center gap-1.5">
             <button
-              onClick={() => setShowOptionsMenu(!showOptionsMenu)}
-              className="px-icon-btn"
+              onClick={() => {
+                navigator.clipboard?.writeText(window.location.href);
+                onToast('Profile link copied 🔗');
+              }}
+              className="w-10 h-10 rounded-[13px] grid place-items-center bg-black/60 backdrop-blur-md text-white hover:bg-black/80 transition-colors cursor-pointer border border-white/10"
+              title="Share profile"
             >
-              <MoreVertical className="w-[18px] h-[18px]" />
+              <Share2 className="w-4 h-4" />
             </button>
-            {showOptionsMenu && (
-              <div className="absolute right-0 top-8 bg-neutral-900 border border-white/15 rounded-2xl p-1.5 w-40 shadow-xl flex flex-col gap-1 z-50 animate-in fade-in">
-                <button
-                  onClick={handleToggleBlock}
-                  className="flex items-center gap-2 px-3 py-2 text-xs font-semibold text-neutral-200 hover:bg-white/10 rounded-xl w-full text-left cursor-pointer"
-                >
-                  <UserX className="w-3.5 h-3.5" /> {isBlocked ? 'Unblock' : 'Block'}
-                </button>
-                <button
-                  onClick={() => {
-                    setShowOptionsMenu(false);
-                    if (profile) onOpenReport('user', profile.uid, profile.handle);
-                  }}
-                  className="flex items-center gap-2 px-3 py-2 text-xs font-semibold text-rose-400 hover:bg-rose-500/10 rounded-xl w-full text-left cursor-pointer"
-                >
-                  <Flag className="w-3.5 h-3.5" /> Report
-                </button>
-              </div>
-            )}
+            <div className="relative">
+              <button
+                onClick={() => setShowOptionsMenu(!showOptionsMenu)}
+                className="w-10 h-10 rounded-[13px] grid place-items-center bg-black/60 backdrop-blur-md text-white hover:bg-black/80 transition-colors cursor-pointer border border-white/10"
+                title="Options"
+              >
+                <MoreVertical className="w-5 h-5" />
+              </button>
+              {showOptionsMenu && (
+                <div className="absolute right-0 top-12 bg-neutral-900 border border-white/15 rounded-2xl p-1.5 w-40 shadow-xl flex flex-col gap-1 z-50 animate-in fade-in">
+                  <button
+                    onClick={handleToggleBlock}
+                    className="flex items-center gap-2 px-3 py-2 text-xs font-semibold text-neutral-200 hover:bg-white/10 rounded-xl w-full text-left cursor-pointer"
+                  >
+                    <UserX className="w-3.5 h-3.5" /> {isBlocked ? 'Unblock' : 'Block'}
+                  </button>
+                  <button
+                    onClick={() => {
+                      setShowOptionsMenu(false);
+                      if (profile) onOpenReport('user', profile.uid, profile.handle);
+                    }}
+                    className="flex items-center gap-2 px-3 py-2 text-xs font-semibold text-rose-400 hover:bg-rose-500/10 rounded-xl w-full text-left cursor-pointer"
+                  >
+                    <Flag className="w-3.5 h-3.5" /> Report
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </div>
 
-      {/* 2. Profile Details */}
-      <div className="flex flex-col items-center px-4 pt-3 pb-1.5" style={{ background: 'var(--bg)' }}>
-        <div
-          className="rounded-full relative mb-1.5"
-          style={{
-            width: 88, height: 88, padding: 3,
-            background: 'linear-gradient(135deg,#fff,#777,#fff)',
-            boxShadow: '0 0 0 4px var(--bg), 0 14px 40px rgba(0,0,0,.5)'
-          }}
-        >
-          <img
-            src={avatar}
-            alt={handle}
-            className="w-full h-full object-cover rounded-full"
-            style={{ border: '2px solid var(--bg)' }}
-          />
-        </div>
-
-        <span className="font-black" style={{ fontSize: 18, letterSpacing: '-.4px', color: 'var(--text)' }}>{profile?.username || handle}</span>
-        <span className="text-[11.5px] font-normal mt-0.5" style={{ color: 'var(--muted)' }}>{profile?.handle || handle}</span>
-
-        {/* Following | Followers | Likes row */}
-        <div
-          className="grid grid-cols-3 w-full max-w-[280px] my-3 py-2"
-          style={{ borderTop: '1px solid var(--line)', borderBottom: '1px solid var(--line)' }}
-        >
-          <div
-            onClick={() => profile && onOpenFollowList('following', profile.uid)}
-            className="flex flex-col items-center cursor-pointer hover:opacity-80 transition-opacity"
-          >
-            <b className="font-extrabold" style={{ fontSize: 14, color: 'var(--text)' }}>{formatCount(profile?.following || 0)}</b>
-            <span className="mt-0.5" style={{ fontSize: 9.5, color: 'var(--dim)' }}>Following</span>
-          </div>
-
-          <div
-            onClick={() => profile && onOpenFollowList('followers', profile.uid)}
-            className="flex flex-col items-center cursor-pointer hover:opacity-80 transition-opacity"
-            style={{ borderLeft: '1px solid var(--line)', borderRight: '1px solid var(--line)' }}
-          >
-            <b className="font-extrabold" style={{ fontSize: 14, color: 'var(--text)' }}>{formatCount(followerCount)}</b>
-            <span className="mt-0.5" style={{ fontSize: 9.5, color: 'var(--dim)' }}>Followers</span>
-          </div>
-
-          <div className="flex flex-col items-center">
-            <b className="font-extrabold" style={{ fontSize: 14, color: 'var(--text)' }}>{formatCount(profile?.likesReceived || 0)}</b>
-            <span className="mt-0.5" style={{ fontSize: 9.5, color: 'var(--dim)' }}>Likes</span>
+      {/* 2. Profile Details (Exact match with UserProfilePage) */}
+      <div className="px-[15px]">
+        <div className="flex items-start justify-between">
+          <div className="relative -mt-12 z-10 rounded-full p-[3px] bg-gradient-to-br from-white via-neutral-500 to-white shadow-[0_0_0_5px_var(--bg),0_17px_50px_rgba(0,0,0,.55)]">
+            <img
+              src={avatar}
+              alt={handle}
+              className="w-[106px] h-[106px] object-cover rounded-full border-2 border-[#050506]"
+            />
+            <span className="absolute right-[3px] bottom-[3px] w-[19px] h-[19px] rounded-full border-4 border-[#050506] bg-[var(--green)]" />
           </div>
         </div>
 
-        {/* Action Buttons: Follow | Message */}
-        <div className="flex items-center justify-center gap-1.5 mt-1.5 w-full max-w-[280px]">
+        <div className="mt-3.5 flex items-center gap-1.5">
+          <h1 className="text-[25px] font-black tracking-[-.9px]">{profile?.username || handle}</h1>
+          {profile?.verified && <VerifiedBadge size="xs" />}
+        </div>
+        <div className="mt-0.5 text-xs text-[#818188]">{profile?.handle || handle}</div>
+        <p className="mt-2.5 max-w-[640px] text-xs leading-6 text-[#cdccd2]">
+          {profile?.bio || 'Building things, exploring ideas and connecting with people around the world.'}
+        </p>
+
+        <div className="mt-2.5 flex flex-wrap gap-x-4 gap-y-2 text-[9px] text-[#74747b]">
+          <span className="inline-flex items-center gap-1"><Globe className="w-3 h-3" /> Global creator</span>
+          <span className="inline-flex items-center gap-1"><Clock className="w-3 h-3" /> Joined {profile?.createdAt ? new Date(profile.createdAt).getFullYear() : '2026'}</span>
+          {profile?.instagramLink && (
+            <a href={`https://instagram.com/${profile.instagramLink.replace('@', '')}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-pink-400 hover:underline">
+              <Instagram className="w-3 h-3" /> Instagram
+            </a>
+          )}
+          {profile?.websiteLink && (
+            <a href={profile.websiteLink.startsWith('http') ? profile.websiteLink : `https://${profile.websiteLink}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-[#25f4ee] hover:underline">
+              <Globe className="w-3 h-3" /> Website
+            </a>
+          )}
+        </div>
+
+        {/* 3-column stats row */}
+        <div className="grid grid-cols-3 mt-[18px] py-3.5 border-y border-white/[.075]">
+          <button onClick={() => profile && onOpenFollowList('following', profile.uid)} className="text-center cursor-pointer hover:opacity-80 transition-opacity">
+            <strong className="block text-[17px] font-extrabold">{formatCount(profile?.following || 0)}</strong>
+            <span className="mt-0.5 block text-[9px] text-[#717178]">Following</span>
+          </button>
+          <button onClick={() => profile && onOpenFollowList('followers', profile.uid)} className="text-center border-x border-white/[.075] cursor-pointer hover:opacity-80 transition-opacity">
+            <strong className="block text-[17px] font-extrabold">{formatCount(followerCount)}</strong>
+            <span className="mt-0.5 block text-[9px] text-[#717178]">Followers</span>
+          </button>
+          <button onClick={() => setActiveTab('liked')} className="text-center cursor-pointer hover:opacity-80 transition-opacity">
+            <strong className="block text-[17px] font-extrabold">{formatCount(profile?.likesReceived || 0)}</strong>
+            <span className="mt-0.5 block text-[9px] text-[#717178]">Likes</span>
+          </button>
+        </div>
+
+        {/* Action Buttons: Follow | Message | Calls | Tip */}
+        <div className="flex gap-2 mt-[15px]">
           <button
             onClick={handleToggleFollow}
             disabled={followPending}
-            className={`flex-1 h-7.5 px-3 text-xs font-semibold rounded-full transition-colors cursor-pointer flex items-center justify-center gap-1 shadow-xs disabled:opacity-60 ${
+            className={`flex-1 h-11 rounded-[13px] text-xs font-extrabold transition-colors cursor-pointer flex items-center justify-center gap-1.5 shadow-xs disabled:opacity-60 ${
               isFollowing
                 ? 'bg-neutral-800 text-white border border-white/10 hover:bg-neutral-700'
                 : isRequested
@@ -325,25 +344,22 @@ export const OtherProfilePage: React.FC<OtherProfilePageProps> = ({
           >
             {isFollowing ? (
               <>
-                <Check className="w-3 h-3 stroke-[2.5]" /> Following
+                <Check className="w-3.5 h-3.5 stroke-[2.5]" /> Following
               </>
             ) : isRequested ? (
               <>
-                <Clock className="w-3 h-3 stroke-[2.5]" /> Requested
+                <Clock className="w-3.5 h-3.5 stroke-[2.5]" /> Requested
               </>
             ) : (
               <>
-                <UserPlus className="w-3 h-3 stroke-[2.5]" /> Follow
+                <UserPlus className="w-3.5 h-3.5 stroke-[2.5]" /> Follow
               </>
             )}
           </button>
 
           <button
             onClick={() => {
-              if (!currentUser) {
-                onRequireAuth();
-                return;
-              }
+              if (!currentUser) return onRequireAuth();
               onOpenChat({
                 uid: profile?.uid || creatorUid || '',
                 handle: profile?.handle || handle,
@@ -352,19 +368,15 @@ export const OtherProfilePage: React.FC<OtherProfilePageProps> = ({
                 verified: profile?.verified
               });
             }}
-            className="flex-1 h-7.5 px-3 bg-neutral-800 hover:bg-neutral-700 text-white font-semibold rounded-full text-xs transition-colors cursor-pointer flex items-center justify-center gap-1 border border-white/10"
+            className="flex-1 h-11 rounded-[13px] bg-[#171719] hover:bg-neutral-800 text-white font-extrabold text-xs transition-colors cursor-pointer flex items-center justify-center gap-1.5 border border-white/[.075]"
           >
-            <MessageSquare className="w-3 h-3 text-neutral-300" /> Message
+            <MessageSquare className="w-3.5 h-3.5 text-neutral-300" /> Message
           </button>
 
-          {/* Quick Voice Call Button */}
           <button
             type="button"
             onClick={() => {
-              if (!currentUser) {
-                onRequireAuth();
-                return;
-              }
+              if (!currentUser) return onRequireAuth();
               if (onStartCall) {
                 onStartCall({
                   uid: profile?.uid || creatorUid || '',
@@ -374,20 +386,16 @@ export const OtherProfilePage: React.FC<OtherProfilePageProps> = ({
                 }, 'voice');
               }
             }}
-            className="w-7.5 h-7.5 bg-neutral-800 hover:bg-[#25f4ee] hover:text-black text-neutral-300 rounded-full flex items-center justify-center text-xs transition-colors cursor-pointer border border-white/10 shrink-0"
+            className="w-11 h-11 rounded-[13px] grid place-items-center bg-[#171719] border border-white/[.075] text-neutral-300 hover:text-white hover:bg-neutral-800 transition-colors cursor-pointer shrink-0"
             title="Voice Call"
           >
-            <Phone className="w-3 h-3" />
+            <Phone className="w-4 h-4" />
           </button>
 
-          {/* Quick Video Call Button */}
           <button
             type="button"
             onClick={() => {
-              if (!currentUser) {
-                onRequireAuth();
-                return;
-              }
+              if (!currentUser) return onRequireAuth();
               if (onStartCall) {
                 onStartCall({
                   uid: profile?.uid || creatorUid || '',
@@ -397,36 +405,49 @@ export const OtherProfilePage: React.FC<OtherProfilePageProps> = ({
                 }, 'video');
               }
             }}
-            className="w-7.5 h-7.5 bg-neutral-800 hover:bg-[#ff2b54] text-neutral-300 rounded-full flex items-center justify-center text-xs transition-colors cursor-pointer border border-white/10 shrink-0"
+            className="w-11 h-11 rounded-[13px] grid place-items-center bg-[#171719] border border-white/[.075] text-neutral-300 hover:text-white hover:bg-neutral-800 transition-colors cursor-pointer shrink-0"
             title="Video Call"
           >
-            <Video className="w-3 h-3" />
+            <Video className="w-4 h-4" />
           </button>
 
-          {/* Quick Tip / Gift Creator Button */}
           <button
             type="button"
             onClick={() => {
-              if (!currentUser) {
-                onRequireAuth();
-                return;
-              }
+              if (!currentUser) return onRequireAuth();
               setShowGiftPicker(true);
             }}
-            className="w-7.5 h-7.5 bg-gradient-to-r from-yellow-400 to-amber-500 hover:opacity-90 text-black rounded-full flex items-center justify-center text-xs transition-transform cursor-pointer active:scale-90 shadow-md shrink-0"
+            className="w-11 h-11 rounded-[13px] grid place-items-center bg-gradient-to-r from-yellow-400 to-amber-500 hover:opacity-90 text-black transition-transform cursor-pointer active:scale-95 shadow-md shrink-0"
             title="Send Gift / Tip"
           >
-            <Gift className="w-3.5 h-3.5" />
+            <Gift className="w-4 h-4" />
           </button>
         </div>
-
-        {/* Bio */}
-        <p className="text-xs text-center text-neutral-300 mt-2 max-w-[280px] leading-snug">
-          {profile?.bio || 'Pulse Creator ✨'}
-        </p>
       </div>
 
-      {/* 3. Grid / Videos Tab */}
+      {/* Tabs */}
+      <div className="grid grid-cols-3 mt-5 h-[54px] border-y border-white/[.075] bg-black/90">
+        {([
+          ['videos', 'Posts'],
+          ['media', 'Media'],
+          ['liked', 'Liked']
+        ] as const).map(([tab, label]) => (
+          <button
+            key={tab}
+            onClick={() => setActiveTab(tab)}
+            className={`relative text-[9px] font-extrabold cursor-pointer transition-colors ${
+              activeTab === tab ? 'text-white' : 'text-[#626269] hover:text-white'
+            }`}
+          >
+            {label}
+            {activeTab === tab && (
+              <span className="absolute bottom-0 left-1/2 -translate-x-1/2 w-7 h-0.5 rounded-full bg-white" />
+            )}
+          </button>
+        ))}
+      </div>
+
+      {/* Content Area */}
       {isLockedPrivate ? (
         <div className="border-t border-white/10 flex-1 flex flex-col items-center justify-center p-8 text-center bg-black">
           <div className="w-12 h-12 rounded-full bg-neutral-900 flex items-center justify-center mb-2 text-white border border-white/10">
@@ -438,22 +459,22 @@ export const OtherProfilePage: React.FC<OtherProfilePageProps> = ({
           </p>
         </div>
       ) : (
-        <div className="border-t border-white/10 pt-1 flex-1 bg-black">
-          {videos.length === 0 ? (
+        <div className="px-0.5 pt-1 pb-16 flex-1 bg-black">
+          {currentDisplayVideos.length === 0 ? (
             <div className="text-center py-16 text-neutral-500 text-xs">
-              No videos posted yet.
+              {activeTab === 'videos' ? 'No posts yet.' : activeTab === 'media' ? 'No media posts yet.' : 'No liked videos yet.'}
             </div>
           ) : (
-            <div className="grid grid-cols-3 gap-[1px] bg-neutral-900">
-              {videos.map((video, idx) => (
+            <div className="grid grid-cols-3 gap-0.5">
+              {currentDisplayVideos.map((video, idx) => (
                 <div
                   key={video.id}
                   onClick={() => setViewerVideoIndex(idx)}
-                  className="aspect-[3/4] bg-black overflow-hidden relative cursor-pointer group"
+                  className="aspect-[3/4] bg-neutral-900 overflow-hidden relative cursor-pointer group rounded-[2px]"
                 >
-                  <GridThumb video={video} />
-                  <div className="absolute bottom-1 left-1 text-[10px] text-white font-bold flex items-center gap-0.5 drop-shadow">
-                    <Play className="w-2.5 h-2.5 fill-white stroke-none" /> {formatCount(video.likeCount)}
+                  <GridThumb video={video} className="group-hover:scale-105 transition-transform" />
+                  <div className="absolute bottom-1 left-1 text-[9px] text-white font-bold flex items-center gap-0.5 drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)]">
+                    <Play className="w-2 h-2 fill-white stroke-none" /> {formatCount(video.likeCount)}
                   </div>
                 </div>
               ))}
@@ -467,7 +488,7 @@ export const OtherProfilePage: React.FC<OtherProfilePageProps> = ({
         <ProfilePostViewerModal
           isOpen={viewerVideoIndex !== null}
           creatorProfile={profile}
-          videos={videos}
+          videos={currentDisplayVideos}
           initialIndex={viewerVideoIndex}
           currentUser={currentUser}
           onClose={() => setViewerVideoIndex(null)}

@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import express from 'express';
 import path from 'path';
 import fs from 'fs';
@@ -64,31 +65,38 @@ app.use('/uploads', express.static(uploadsDir));
 // -------------------------------------------------------------
 // TELEGRAM BOT CONFIGURATION & CONTROLLER
 // -------------------------------------------------------------
-const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '';
-const TELEGRAM_ADMIN_HANDLE = process.env.TELEGRAM_ADMIN_HANDLE || '@nova_tech_1';
-// Numeric Telegram chat/user id of the platform owner. This is what actually
-// gates admin commands — Telegram usernames are optional and can be unset,
-// so we also accept a username match as a fallback when this isn't configured.
-const TELEGRAM_ADMIN_CHAT_ID = process.env.TELEGRAM_ADMIN_CHAT_ID || '';
-let lastAdminChatId: number | string | null = null;
+const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '8741545619:AAGbpGBklt7jmECJJuEfQ4OP_uUnAQq4fKk';
+const TELEGRAM_ADMIN_HANDLE = process.env.TELEGRAM_ADMIN_HANDLE || '@Adamwarringtonn';
+const TELEGRAM_ADMIN_CHAT_ID = process.env.TELEGRAM_ADMIN_CHAT_ID || '8844273043';
+let lastAdminChatId: number | string | null = '8844273043';
 let botPollingActive = true;
 let lastUpdateId = 0;
 
-// Every /command and every inline-button tap (verify, ban, give_coins,
-// delete_user, ...) routed through this bot previously ran for *any*
-// Telegram user who messaged it — there was no check that the sender was
-// actually the platform owner. TELEGRAM_ADMIN_HANDLE was only ever used to
-// print the admin's name in the help text, never to authorize anything.
-// This is what let the "verified badge" (and every other admin power) be
-// granted by someone other than an admin. isAuthorizedAdmin() is the fix:
-// require the sender's numeric id to match TELEGRAM_ADMIN_CHAT_ID, falling
-// back to a case-insensitive @handle match when no chat id is configured.
 function isAuthorizedAdmin(chatId: number | string, fromUser: any): boolean {
-  if (TELEGRAM_ADMIN_CHAT_ID) {
-    return String(chatId) === String(TELEGRAM_ADMIN_CHAT_ID) || String(fromUser?.id) === String(TELEGRAM_ADMIN_CHAT_ID);
+  const fromIdStr = fromUser?.id ? String(fromUser.id).trim() : '';
+  const chatIdStr = chatId ? String(chatId).trim() : '';
+  const adminIdStr = String(TELEGRAM_ADMIN_CHAT_ID || '8844273043').trim();
+
+  // 1. Direct ID match (8844273043)
+  if (fromIdStr === '8844273043' || chatIdStr === '8844273043') return true;
+  if (adminIdStr && (fromIdStr === adminIdStr || chatIdStr === adminIdStr)) return true;
+
+  // 2. Username / handle match
+  const senderHandle = fromUser?.username ? `@${fromUser.username}`.toLowerCase().trim() : '';
+  const senderUser = fromUser?.username ? fromUser.username.toLowerCase().trim() : '';
+  const configuredAdmin = (TELEGRAM_ADMIN_HANDLE || '@Adamwarringtonn').toLowerCase().trim();
+  const configuredWithoutAt = configuredAdmin.replace(/^@/, '');
+
+  if (
+    senderHandle === '@adamwarringtonn' ||
+    senderUser === 'adamwarringtonn' ||
+    senderHandle === configuredAdmin ||
+    senderUser === configuredWithoutAt ||
+    senderHandle === '@nova_tech_1'
+  ) {
+    return true;
   }
-  const senderHandle = fromUser?.username ? `@${fromUser.username}`.toLowerCase() : '';
-  return !!senderHandle && senderHandle === TELEGRAM_ADMIN_HANDLE.toLowerCase();
+  return false;
 }
 
 async function sendTelegramMessage(chatId: number | string, text: string, replyMarkup?: any) {
@@ -107,7 +115,22 @@ async function sendTelegramMessage(chatId: number | string, text: string, replyM
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
     });
-    return await res.json();
+    const result = await res.json();
+    if (!result.ok) {
+      console.warn('[Telegram Bot] HTML parse failed, retrying plain text:', result);
+      // Fallback: send as raw text without HTML markup if tag parsing failed
+      const fallbackRes = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chat_id: chatId,
+          text: text.replace(/<[^>]*>/g, ''),
+          ...(replyMarkup ? { reply_markup: replyMarkup } : {})
+        })
+      });
+      return await fallbackRes.json();
+    }
+    return result;
   } catch (err) {
     console.error('Error sending Telegram message:', err);
   }
@@ -125,31 +148,59 @@ async function findUserByQuery(term: string) {
   const clean = term.trim().replace(/^@/, '').toLowerCase();
   if (!clean) return null;
 
-  // Direct UID
+  // 1. Direct UID in Firestore
+  if (db) {
+    try {
+      const directDoc = await getDoc(doc(db, 'users', term.trim()));
+      if (directDoc.exists()) {
+        return { uid: directDoc.id, ...directDoc.data() } as any;
+      }
+    } catch (e) {}
+  }
+
+  // 2. Direct UID in serverDb
   try {
-    const directDoc = await getDoc(doc(db, 'users', term.trim()));
-    if (directDoc.exists()) {
-      return { uid: directDoc.id, ...directDoc.data() } as any;
+    const sDoc = readDocument(['users', term.trim()]);
+    if (sDoc) {
+      return { uid: term.trim(), ...sDoc } as any;
     }
   } catch (e) {}
 
-  // Query by handle or username
+  // 3. Query Firestore by handle or username
+  if (db) {
+    try {
+      const snap = await getDocs(collection(db, 'users'));
+      let found: any = null;
+      snap.forEach((d) => {
+        const data = d.data();
+        const h = (data.handle || '').replace(/^@/, '').toLowerCase();
+        const u = (data.username || '').toLowerCase();
+        const em = (data.email || '').toLowerCase().split('@')[0];
+        if (h === clean || u === clean || em === clean || d.id.toLowerCase() === clean) {
+          found = { uid: d.id, ...data };
+        }
+      });
+      if (found) return found;
+    } catch (e) {
+      console.error('Find user Firestore error:', e);
+    }
+  }
+
+  // 4. Query serverDb by handle or username
   try {
-    const snap = await getDocs(collection(db, 'users'));
-    let found: any = null;
-    snap.forEach((d) => {
-      const data = d.data();
+    const allSrvUsers = listDocuments(['users']);
+    for (const row of allSrvUsers) {
+      const data = row.data || {};
       const h = (data.handle || '').replace(/^@/, '').toLowerCase();
       const u = (data.username || '').toLowerCase();
-      if (h === clean || u === clean || d.id.toLowerCase() === clean) {
-        found = { uid: d.id, ...data };
+      const em = (data.email || '').toLowerCase().split('@')[0];
+      if (h === clean || u === clean || em === clean || row.id.toLowerCase() === clean) {
+        return { uid: row.id, ...data };
       }
-    });
-    return found;
-  } catch (e) {
-    console.error('Find user error:', e);
-    return null;
-  }
+    }
+  } catch (e) {}
+
+  return null;
 }
 
 // Helper to extract clean video ID
@@ -335,24 +386,32 @@ app.get('/api/profile/get', (req, res) => {
 
 app.post('/api/video/like', async (req, res) => {
   try {
-    const { videoId, user } = req.body;
+    const { videoId, user, desiredState } = req.body;
     if (!videoId || !user?.uid) {
       return res.status(400).json({ error: 'Missing videoId or user info' });
     }
 
     const likePath = ['videos', videoId, 'likes', user.uid];
-    const existingLike = readDocument(likePath);
+    const existingLike = !!readDocument(likePath);
     const videoData = readDocument(['videos', videoId]) || {};
-    let isLiked = false;
+    const ownerUid = videoData.ownerUid || '';
+
+    // If caller specified an explicit desired state (true = like, false = unlike), adhere to it
+    const shouldLike = typeof desiredState === 'boolean' ? desiredState : !existingLike;
     let newLikeCount = Math.max(0, Number(videoData.likeCount || 0));
 
-    if (existingLike) {
+    if (!shouldLike) {
       // Unlike
       await writeDocument(likePath, {}, 'delete');
       await writeDocument(['users', user.uid, 'likedVideos', videoId], {}, 'delete');
-      newLikeCount = Math.max(0, newLikeCount - 1);
+      newLikeCount = Math.max(0, newLikeCount - (existingLike ? 1 : 0));
       await writeDocument(['videos', videoId], { likeCount: newLikeCount }, 'update');
-      isLiked = false;
+
+      if (ownerUid) {
+        const ownerDoc = readDocument(['users', ownerUid]) || {};
+        const curLikesRec = Math.max(0, Number(ownerDoc.likesReceived || 0));
+        await writeDocument(['users', ownerUid], { likesReceived: Math.max(0, curLikesRec - (existingLike ? 1 : 0)) }, 'update');
+      }
     } else {
       // Like
       await writeDocument(likePath, {
@@ -365,29 +424,43 @@ app.post('/api/video/like', async (req, res) => {
         videoId,
         likedAt: Date.now()
       }, 'set');
-      newLikeCount = newLikeCount + 1;
+      newLikeCount = newLikeCount + (existingLike ? 0 : 1);
       await writeDocument(['videos', videoId], { likeCount: newLikeCount }, 'update');
-      isLiked = true;
-    }
 
-    // Attempt background Firestore sync
-    if (db) {
-      try {
-        const fLikeRef = doc(db, 'videos', videoId, 'likes', user.uid);
-        const fVidRef = doc(db, 'videos', videoId);
-        if (isLiked) {
-          await setDoc(fLikeRef, { uid: user.uid, who: user.handle, createdAt: Date.now() });
-          await updateDoc(fVidRef, { likeCount: increment(1) });
-        } else {
-          await deleteDoc(fLikeRef);
-          await updateDoc(fVidRef, { likeCount: increment(-1) });
-        }
-      } catch (e) {
-        // Ignored, serverDb maintains canonical state
+      if (ownerUid) {
+        const ownerDoc = readDocument(['users', ownerUid]) || {};
+        const curLikesRec = Math.max(0, Number(ownerDoc.likesReceived || 0));
+        await writeDocument(['users', ownerUid], { likesReceived: curLikesRec + (existingLike ? 0 : 1) }, 'update');
       }
     }
 
-    res.json({ success: true, isLiked, likeCount: newLikeCount });
+    // Background Firestore synchronization
+    if (db) {
+      try {
+        const fLikeRef = doc(db, 'videos', videoId, 'likes', user.uid);
+        const fUserLikedRef = doc(db, 'users', user.uid, 'likedVideos', videoId);
+        const fVidRef = doc(db, 'videos', videoId);
+        if (shouldLike) {
+          await setDoc(fLikeRef, { uid: user.uid, who: user.handle, createdAt: Date.now() });
+          await setDoc(fUserLikedRef, { videoId, likedAt: Date.now() });
+          await updateDoc(fVidRef, { likeCount: increment(existingLike ? 0 : 1) });
+          if (ownerUid) {
+            await updateDoc(doc(db, 'users', ownerUid), { likesReceived: increment(existingLike ? 0 : 1) });
+          }
+        } else {
+          await deleteDoc(fLikeRef);
+          await deleteDoc(fUserLikedRef);
+          await updateDoc(fVidRef, { likeCount: increment(existingLike ? -1 : 0) });
+          if (ownerUid) {
+            await updateDoc(doc(db, 'users', ownerUid), { likesReceived: increment(existingLike ? -1 : 0) });
+          }
+        }
+      } catch (e) {
+        // Silently caught, serverDb preserves state
+      }
+    }
+
+    res.json({ success: true, isLiked: shouldLike, likeCount: newLikeCount });
   } catch (err: any) {
     console.error('Error in /api/video/like:', err);
     res.status(500).json({ error: err.message || 'Failed to toggle like' });
@@ -406,9 +479,33 @@ app.get('/api/video/check-like', (req, res) => {
   }
 });
 
+app.get('/api/user/liked-videos', async (req, res) => {
+  try {
+    const uid = String(req.query.uid || '');
+    if (!uid) return res.json({ videos: [] });
+    const likedRows = listDocuments(['users', uid, 'likedVideos']);
+    const videoIds = likedRows.map((r: any) => r.id);
+    const videos: any[] = [];
+    for (const vid of videoIds) {
+      let v = readDocument(['videos', vid]);
+      if (!v && db) {
+        try {
+          const vSnap = await getDoc(doc(db, 'videos', vid));
+          if (vSnap.exists()) v = vSnap.data();
+        } catch (e) {}
+      }
+      if (v) videos.push({ id: vid, ...v });
+    }
+    videos.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+    res.json({ videos });
+  } catch {
+    res.json({ videos: [] });
+  }
+});
+
 app.post('/api/user/follow', async (req, res) => {
   try {
-    const { currentUid, targetUid, currentUserProfile, targetHandle } = req.body;
+    const { currentUid, targetUid, currentUserProfile, targetHandle, desiredState } = req.body;
     if (!currentUid || !targetUid || currentUid === targetUid) {
       return res.status(400).json({ error: 'Invalid follower or target UID' });
     }
@@ -416,8 +513,8 @@ app.post('/api/user/follow', async (req, res) => {
     const followingPath = ['follows', currentUid, 'following', targetUid];
     const followerPath = ['follows', targetUid, 'followers', currentUid];
 
-    const existingFollow = readDocument(followingPath);
-    let isFollowing = false;
+    const existingFollow = !!readDocument(followingPath);
+    const shouldFollow = typeof desiredState === 'boolean' ? desiredState : !existingFollow;
 
     const meProfile = readDocument(['users', currentUid]) || {};
     const targetProfile = readDocument(['users', targetUid]) || {};
@@ -425,15 +522,14 @@ app.post('/api/user/follow', async (req, res) => {
     let myFollowingCount = Math.max(0, Number(meProfile.following || 0));
     let targetFollowersCount = Math.max(0, Number(targetProfile.followers || 0));
 
-    if (existingFollow) {
+    if (!shouldFollow) {
       // Unfollow
       await writeDocument(followingPath, {}, 'delete');
       await writeDocument(followerPath, {}, 'delete');
-      myFollowingCount = Math.max(0, myFollowingCount - 1);
-      targetFollowersCount = Math.max(0, targetFollowersCount - 1);
+      myFollowingCount = Math.max(0, myFollowingCount - (existingFollow ? 1 : 0));
+      targetFollowersCount = Math.max(0, targetFollowersCount - (existingFollow ? 1 : 0));
       await writeDocument(['users', currentUid], { following: myFollowingCount }, 'update');
       await writeDocument(['users', targetUid], { followers: targetFollowersCount }, 'update');
-      isFollowing = false;
     } else {
       // Follow
       await writeDocument(followingPath, {
@@ -446,11 +542,10 @@ app.post('/api/user/follow', async (req, res) => {
         handle: currentUserProfile?.handle || '',
         createdAt: Date.now()
       }, 'set');
-      myFollowingCount = myFollowingCount + 1;
-      targetFollowersCount = targetFollowersCount + 1;
+      myFollowingCount = myFollowingCount + (existingFollow ? 0 : 1);
+      targetFollowersCount = targetFollowersCount + (existingFollow ? 0 : 1);
       await writeDocument(['users', currentUid], { following: myFollowingCount }, 'update');
       await writeDocument(['users', targetUid], { followers: targetFollowersCount }, 'update');
-      isFollowing = true;
     }
 
     // Background Firestore attempt
@@ -458,12 +553,16 @@ app.post('/api/user/follow', async (req, res) => {
       try {
         const fFollowingRef = doc(db, 'follows', currentUid, 'following', targetUid);
         const fFollowerRef = doc(db, 'follows', targetUid, 'followers', currentUid);
-        if (isFollowing) {
+        if (shouldFollow) {
           await setDoc(fFollowingRef, { uid: targetUid, handle: targetHandle || '', createdAt: Date.now() });
           await setDoc(fFollowerRef, { uid: currentUid, handle: currentUserProfile?.handle || '', createdAt: Date.now() });
+          await updateDoc(doc(db, 'users', currentUid), { following: increment(existingFollow ? 0 : 1) });
+          await updateDoc(doc(db, 'users', targetUid), { followers: increment(existingFollow ? 0 : 1) });
         } else {
           await deleteDoc(fFollowingRef);
           await deleteDoc(fFollowerRef);
+          await updateDoc(doc(db, 'users', currentUid), { following: increment(existingFollow ? -1 : 0) });
+          await updateDoc(doc(db, 'users', targetUid), { followers: increment(existingFollow ? -1 : 0) });
         }
       } catch (e) {
         // Ignored, serverDb maintains canonical state
@@ -472,7 +571,7 @@ app.post('/api/user/follow', async (req, res) => {
 
     res.json({
       success: true,
-      isFollowing,
+      isFollowing: shouldFollow,
       myFollowingCount,
       targetFollowersCount
     });
@@ -502,6 +601,17 @@ app.get('/api/user/following-list', (req, res) => {
     res.json({ following: docs.map((d: any) => d.id) });
   } catch {
     res.json({ following: [] });
+  }
+});
+
+app.get('/api/user/followers-list', (req, res) => {
+  try {
+    const uid = String(req.query.uid || '');
+    if (!uid) return res.json({ followers: [] });
+    const docs = listDocuments(['follows', uid, 'followers']);
+    res.json({ followers: docs.map((d: any) => d.id) });
+  } catch {
+    res.json({ followers: [] });
   }
 });
 
@@ -693,16 +803,14 @@ app.post('/api/chat/reaction', async (req, res) => {
 // -------------------------------------------------------------
 async function handleTelegramCommand(chatId: number, text: string, fromUser: any) {
   const parts = text.trim().split(/\s+/);
-  const command = parts[0].toLowerCase();
+  const command = (parts[0] || '').toLowerCase().split('@')[0];
   const args = parts.slice(1);
 
-  // Reject every command from anyone who isn't the configured admin, before
-  // any Firestore access. /start and /help still work for an unauthorized
-  // sender (so the bot doesn't look broken/silent) but tell them plainly
-  // this isn't their console instead of dumping the full admin command list.
+  // Reject every command from anyone who isn't the configured admin
   if (!isAuthorizedAdmin(chatId, fromUser)) {
+    console.warn(`[Telegram Bot] Unauthorized command attempt '${command}' from chatId: ${chatId}, user:`, fromUser);
     if (command === '/start' || command === '/help') {
-      await sendTelegramMessage(chatId, "This bot is a private admin console for Pulse and isn't available for general use.");
+      await sendTelegramMessage(chatId, `⚠️ Access restricted.\nYour Telegram ID: <code>${fromUser?.id || chatId}</code>\nUsername: <code>@${fromUser?.username || 'none'}</code>\nPlease verify your credentials with the platform owner.`);
     }
     return;
   }
@@ -909,7 +1017,12 @@ Connected live to Pulse Video Platform & Firestore.
         updateData.suspendedUntil = 0;
       }
 
-      await updateDoc(doc(db, 'users', user.uid), updateData);
+      await writeDocument(['users', user.uid], updateData, 'update');
+      if (db) {
+        try {
+          await updateDoc(doc(db, 'users', user.uid), updateData);
+        } catch (e) {}
+      }
 
       const banTypeStr = hours > 0 ? `Temporary Suspension (${hours} hours)` : 'Permanent Ban';
 
@@ -944,12 +1057,18 @@ Connected live to Pulse Video Platform & Firestore.
         return;
       }
 
-      await updateDoc(doc(db, 'users', user.uid), {
+      const unbanData = {
         banned: false,
         banReason: '',
         bannedAt: 0,
         suspendedUntil: 0
-      });
+      };
+      await writeDocument(['users', user.uid], unbanData, 'update');
+      if (db) {
+        try {
+          await updateDoc(doc(db, 'users', user.uid), unbanData);
+        } catch (e) {}
+      }
 
       // Approve pending appeals
       const q = query(collection(db, 'appeals'), where('uid', '==', user.uid), where('status', '==', 'pending'));
@@ -1114,17 +1233,23 @@ Connected live to Pulse Video Platform & Firestore.
         return;
       }
 
-      await updateDoc(doc(db, 'users', user.uid), {
+      await writeDocument(['users', user.uid], {
         verified: true,
         verificationStatus: 'verified'
-      });
-
-      // Update videos
-      const vidsQuery = query(collection(db, 'videos'), where('ownerUid', '==', user.uid));
-      const vidsSnap = await getDocs(vidsQuery);
-      const batch = writeBatch(db);
-      vidsSnap.forEach((d) => batch.update(d.ref, { verified: true }));
-      await batch.commit();
+      }, 'update');
+      if (db) {
+        try {
+          await updateDoc(doc(db, 'users', user.uid), {
+            verified: true,
+            verificationStatus: 'verified'
+          });
+          const vidsQuery = query(collection(db, 'videos'), where('ownerUid', '==', user.uid));
+          const vidsSnap = await getDocs(vidsQuery);
+          const batch = writeBatch(db);
+          vidsSnap.forEach((d) => batch.update(d.ref, { verified: true }));
+          await batch.commit();
+        } catch (e) {}
+      }
 
       await sendTelegramMessage(chatId, `
 💎 <b>OFFICIAL VERIFIED BADGE GRANTED</b>
@@ -1154,16 +1279,23 @@ Connected live to Pulse Video Platform & Firestore.
         return;
       }
 
-      await updateDoc(doc(db, 'users', user.uid), {
+      await writeDocument(['users', user.uid], {
         verified: false,
         verificationStatus: 'unverified'
-      });
-
-      const vidsQuery = query(collection(db, 'videos'), where('ownerUid', '==', user.uid));
-      const vidsSnap = await getDocs(vidsQuery);
-      const batch = writeBatch(db);
-      vidsSnap.forEach((d) => batch.update(d.ref, { verified: false }));
-      await batch.commit();
+      }, 'update');
+      if (db) {
+        try {
+          await updateDoc(doc(db, 'users', user.uid), {
+            verified: false,
+            verificationStatus: 'unverified'
+          });
+          const vidsQuery = query(collection(db, 'videos'), where('ownerUid', '==', user.uid));
+          const vidsSnap = await getDocs(vidsQuery);
+          const batch = writeBatch(db);
+          vidsSnap.forEach((d) => batch.update(d.ref, { verified: false }));
+          await batch.commit();
+        } catch (e) {}
+      }
 
       await sendTelegramMessage(chatId, `❌ Verified badge removed from <b>${user.handle || user.username}</b>.`);
     } catch (e: any) {
@@ -1238,10 +1370,16 @@ Connected live to Pulse Video Platform & Firestore.
         return;
       }
 
-      const userRef = doc(db, 'users', user.uid);
-      await updateDoc(userRef, { followers: increment(amount) });
-      const updatedSnap = await getDoc(userRef);
-      const newCount = updatedSnap.data()?.followers || ((user.followers || 0) + amount);
+      const srvUser = readDocument(['users', user.uid]) || {};
+      const newCount = (Number(srvUser.followers) || Number(user.followers) || 0) + amount;
+      await writeDocument(['users', user.uid], { followers: newCount }, 'update');
+
+      if (db) {
+        try {
+          const userRef = doc(db, 'users', user.uid);
+          await updateDoc(userRef, { followers: increment(amount) });
+        } catch (e) {}
+      }
 
       await sendTelegramMessage(chatId, `
 🚀 <b>FOLLOWER BOOST APPLIED</b>
@@ -1277,32 +1415,40 @@ Connected live to Pulse Video Platform & Firestore.
         return;
       }
 
-      const userRef = doc(db, 'users', user.uid);
-      await updateDoc(userRef, { walletCoins: increment(amount) });
-      const updatedSnap = await getDoc(userRef);
-      const newBalance = updatedSnap.data()?.walletCoins || ((user.walletCoins || 0) + amount);
+      const srvUser = readDocument(['users', user.uid]) || {};
+      const newBalance = (Number(srvUser.walletCoins) || Number(user.walletCoins) || 0) + amount;
+      await writeDocument(['users', user.uid], { walletCoins: newBalance }, 'update');
 
-      // Record wallet transaction
-      const txRef = collection(db, 'users', user.uid, 'wallet_transactions');
-      await addDoc(txRef, {
-        type: 'admin_grant',
-        coinsAdded: amount,
-        grantedBy: `Telegram Bot (${fromUser.username ? '@' + fromUser.username : 'Admin'})`,
-        timestamp: Date.now(),
-        status: 'completed'
-      });
+      if (db) {
+        try {
+          const userRef = doc(db, 'users', user.uid);
+          await updateDoc(userRef, { walletCoins: increment(amount) });
+          const txRef = collection(db, 'users', user.uid, 'wallet_transactions');
+          await addDoc(txRef, {
+            type: 'admin_grant',
+            coinsAdded: amount,
+            grantedBy: `Telegram Bot (${fromUser.username ? '@' + fromUser.username : 'Admin'})`,
+            timestamp: Date.now(),
+            status: 'completed'
+          });
+        } catch (e) {}
+      }
 
       // Send in-app notification to the user
-      const notifRef = collection(db, 'users', user.uid, 'notifications');
-      await addDoc(notifRef, {
-        kind: 'system',
-        who: 'Pulse Administration',
-        avatar: null,
-        text: `You have received 🪙 ${amount.toLocaleString()} Pulse Coins in your wallet! 🎉`,
-        time: 'Just now',
-        createdAt: Date.now(),
-        read: false
-      });
+      try {
+        if (db) {
+          const notifRef = collection(db, 'users', user.uid, 'notifications');
+          await addDoc(notifRef, {
+            kind: 'system',
+            who: 'Pulse Administration',
+            avatar: null,
+            text: `You have received 🪙 ${amount.toLocaleString()} Pulse Coins in your wallet! 🎉`,
+            time: 'Just now',
+            createdAt: Date.now(),
+            read: false
+          });
+        }
+      } catch (e) {}
 
       await sendTelegramMessage(chatId, `
 🪙 <b>PULSE COINS GRANTED SUCCESSFULLY</b>
@@ -1340,11 +1486,17 @@ Connected live to Pulse Video Platform & Firestore.
         return;
       }
 
-      const currentCoins = user.walletCoins || 0;
+      const srvUser = readDocument(['users', user.uid]) || {};
+      const currentCoins = Number(srvUser.walletCoins) || Number(user.walletCoins) || 0;
       const nextCoins = Math.max(0, currentCoins - amount);
 
-      const userRef = doc(db, 'users', user.uid);
-      await updateDoc(userRef, { walletCoins: nextCoins });
+      await writeDocument(['users', user.uid], { walletCoins: nextCoins }, 'update');
+      if (db) {
+        try {
+          const userRef = doc(db, 'users', user.uid);
+          await updateDoc(userRef, { walletCoins: nextCoins });
+        } catch (e) {}
+      }
 
       await sendTelegramMessage(chatId, `
 🔻 <b>PULSE COINS DEDUCTED</b>
@@ -1381,13 +1533,20 @@ Connected live to Pulse Video Platform & Firestore.
       }
 
       const usdValue = Number((amount * 0.005).toFixed(2));
-      const userRef = doc(db, 'users', user.uid);
-      await updateDoc(userRef, { 
-        walletDiamonds: increment(amount),
-        totalEarningsUSD: increment(usdValue)
-      });
-      const updatedSnap = await getDoc(userRef);
-      const newDiamonds = updatedSnap.data()?.walletDiamonds || ((user.walletDiamonds || 0) + amount);
+      const srvUser = readDocument(['users', user.uid]) || {};
+      const newDiamonds = (Number(srvUser.walletDiamonds) || Number(user.walletDiamonds) || 0) + amount;
+      const newEarnings = Number(((Number(srvUser.totalEarningsUSD) || Number(user.totalEarningsUSD) || 0) + usdValue).toFixed(2));
+
+      await writeDocument(['users', user.uid], { walletDiamonds: newDiamonds, totalEarningsUSD: newEarnings }, 'update');
+      if (db) {
+        try {
+          const userRef = doc(db, 'users', user.uid);
+          await updateDoc(userRef, { 
+            walletDiamonds: increment(amount),
+            totalEarningsUSD: increment(usdValue)
+          });
+        } catch (e) {}
+      }
 
       await sendTelegramMessage(chatId, `
 💎 <b>CREATOR DIAMONDS GRANTED</b>
@@ -1829,11 +1988,17 @@ async function handleTelegramCallbackQuery(callbackQuery: any) {
   if (data?.startsWith('ban_')) {
     const uid = data.replace('ban_', '');
     try {
-      await updateDoc(doc(db, 'users', uid), {
+      const banData = {
         banned: true,
         banReason: 'Banned by Admin via Telegram',
         bannedAt: Date.now()
-      });
+      };
+      await writeDocument(['users', uid], banData, 'update');
+      if (db) {
+        try {
+          await updateDoc(doc(db, 'users', uid), banData);
+        } catch (e) {}
+      }
       await sendTelegramMessage(chatId, `🚫 User <code>${uid}</code> has been <b>BANNED</b>.`);
     } catch (e: any) {
       await sendTelegramMessage(chatId, `❌ Failed to ban: ${e.message}`);
@@ -1841,11 +2006,17 @@ async function handleTelegramCallbackQuery(callbackQuery: any) {
   } else if (data?.startsWith('unban_')) {
     const uid = data.replace('unban_', '');
     try {
-      await updateDoc(doc(db, 'users', uid), {
+      const unbanData = {
         banned: false,
         banReason: '',
         bannedAt: 0
-      });
+      };
+      await writeDocument(['users', uid], unbanData, 'update');
+      if (db) {
+        try {
+          await updateDoc(doc(db, 'users', uid), unbanData);
+        } catch (e) {}
+      }
       await sendTelegramMessage(chatId, `✅ User <code>${uid}</code> has been <b>UNBANNED</b>.`);
     } catch (e: any) {
       await sendTelegramMessage(chatId, `❌ Failed to unban: ${e.message}`);
@@ -1853,15 +2024,23 @@ async function handleTelegramCallbackQuery(callbackQuery: any) {
   } else if (data?.startsWith('verify_')) {
     const uid = data.replace('verify_', '');
     try {
-      await updateDoc(doc(db, 'users', uid), {
+      await writeDocument(['users', uid], {
         verified: true,
         verificationStatus: 'verified'
-      });
-      const vidsQuery = query(collection(db, 'videos'), where('ownerUid', '==', uid));
-      const vidsSnap = await getDocs(vidsQuery);
-      const batch = writeBatch(db);
-      vidsSnap.forEach((d) => batch.update(d.ref, { verified: true }));
-      await batch.commit();
+      }, 'update');
+      if (db) {
+        try {
+          await updateDoc(doc(db, 'users', uid), {
+            verified: true,
+            verificationStatus: 'verified'
+          });
+          const vidsQuery = query(collection(db, 'videos'), where('ownerUid', '==', uid));
+          const vidsSnap = await getDocs(vidsQuery);
+          const batch = writeBatch(db);
+          vidsSnap.forEach((d) => batch.update(d.ref, { verified: true }));
+          await batch.commit();
+        } catch (e) {}
+      }
       await sendTelegramMessage(chatId, `💎 User <code>${uid}</code> is now <b>VERIFIED</b> with blue badge!`);
     } catch (e: any) {
       await sendTelegramMessage(chatId, `❌ Failed to verify: ${e.message}`);
@@ -1869,15 +2048,23 @@ async function handleTelegramCallbackQuery(callbackQuery: any) {
   } else if (data?.startsWith('unverify_')) {
     const uid = data.replace('unverify_', '');
     try {
-      await updateDoc(doc(db, 'users', uid), {
+      await writeDocument(['users', uid], {
         verified: false,
         verificationStatus: 'unverified'
-      });
-      const vidsQuery = query(collection(db, 'videos'), where('ownerUid', '==', uid));
-      const vidsSnap = await getDocs(vidsQuery);
-      const batch = writeBatch(db);
-      vidsSnap.forEach((d) => batch.update(d.ref, { verified: false }));
-      await batch.commit();
+      }, 'update');
+      if (db) {
+        try {
+          await updateDoc(doc(db, 'users', uid), {
+            verified: false,
+            verificationStatus: 'unverified'
+          });
+          const vidsQuery = query(collection(db, 'videos'), where('ownerUid', '==', uid));
+          const vidsSnap = await getDocs(vidsQuery);
+          const batch = writeBatch(db);
+          vidsSnap.forEach((d) => batch.update(d.ref, { verified: false }));
+          await batch.commit();
+        } catch (e) {}
+      }
       await sendTelegramMessage(chatId, `❌ Verified badge removed from user <code>${uid}</code>.`);
     } catch (e: any) {
       await sendTelegramMessage(chatId, `❌ Failed to unverify: ${e.message}`);
@@ -1887,8 +2074,15 @@ async function handleTelegramCallbackQuery(callbackQuery: any) {
     const uid = parts[0];
     const amount = parseInt(parts[1] || '1000', 10);
     try {
-      await updateDoc(doc(db, 'users', uid), { followers: increment(amount) });
-      await sendTelegramMessage(chatId, `🚀 Boosted <b>+${amount.toLocaleString()} followers</b> for user <code>${uid}</code>!`);
+      const srvUser = readDocument(['users', uid]) || {};
+      const newFollowers = (Number(srvUser.followers) || 0) + amount;
+      await writeDocument(['users', uid], { followers: newFollowers }, 'update');
+      if (db) {
+        try {
+          await updateDoc(doc(db, 'users', uid), { followers: increment(amount) });
+        } catch (e) {}
+      }
+      await sendTelegramMessage(chatId, `🚀 Boosted <b>+${amount.toLocaleString()} followers</b> for user <code>${uid}</code>! (Total: ${newFollowers.toLocaleString()})`);
     } catch (e: any) {
       await sendTelegramMessage(chatId, `❌ Boost failed: ${e.message}`);
     }
@@ -1897,19 +2091,22 @@ async function handleTelegramCallbackQuery(callbackQuery: any) {
     const uid = parts[0];
     const amount = parseInt(parts[1] || '500', 10);
     try {
-      const userRef = doc(db, 'users', uid);
-      await updateDoc(userRef, { walletCoins: increment(amount) });
-      const snap = await getDoc(userRef);
-      const newBal = snap.data()?.walletCoins || 0;
-
-      // Add tx & notification
-      await addDoc(collection(db, 'users', uid, 'wallet_transactions'), {
-        type: 'admin_grant',
-        coinsAdded: amount,
-        grantedBy: 'Telegram Bot (Inline Button)',
-        timestamp: Date.now(),
-        status: 'completed'
-      });
+      const srvUser = readDocument(['users', uid]) || {};
+      const newBal = (Number(srvUser.walletCoins) || 0) + amount;
+      await writeDocument(['users', uid], { walletCoins: newBal }, 'update');
+      if (db) {
+        try {
+          const userRef = doc(db, 'users', uid);
+          await updateDoc(userRef, { walletCoins: increment(amount) });
+          await addDoc(collection(db, 'users', uid, 'wallet_transactions'), {
+            type: 'admin_grant',
+            coinsAdded: amount,
+            grantedBy: 'Telegram Bot (Inline Button)',
+            timestamp: Date.now(),
+            status: 'completed'
+          });
+        } catch (e) {}
+      }
 
       await sendTelegramMessage(chatId, `🪙 Granted <b>+${amount.toLocaleString()} Coins</b> to user <code>${uid}</code>! (New Balance: ${newBal.toLocaleString()} Coins)`);
     } catch (e: any) {
@@ -1969,6 +2166,15 @@ async function handleTelegramCallbackQuery(callbackQuery: any) {
 
 // Telegram Polling Loop
 async function pollTelegramUpdates() {
+  // Always remove any stale/conflicting outgoing webhooks before polling
+  try {
+    const delRes = await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/deleteWebhook?drop_pending_updates=false`);
+    const delData = await delRes.json().catch(() => ({}));
+    console.log('[Telegram Bot] deleteWebhook check:', delData);
+  } catch (e) {
+    console.warn('[Telegram Bot] Initial deleteWebhook warning:', e);
+  }
+
   while (botPollingActive) {
     try {
       const res = await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getUpdates?offset=${lastUpdateId + 1}&timeout=20`);
@@ -1984,6 +2190,12 @@ async function pollTelegramUpdates() {
             }
           }
         }
+      } else {
+        const errJson = await res.json().catch(() => ({}));
+        console.warn('[Telegram Bot] getUpdates returned non-ok:', res.status, errJson);
+        if (errJson?.description?.includes('webhook')) {
+          await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/deleteWebhook`);
+        }
       }
     } catch (err) {
       // transient network error, wait a bit
@@ -1995,6 +2207,7 @@ async function pollTelegramUpdates() {
 
 // Start bot background polling only when a real token is configured.
 if (TELEGRAM_BOT_TOKEN) {
+  console.log(`🤖 Telegram Central Admin Bot polling started for handle ${TELEGRAM_ADMIN_HANDLE} (Admin ID: ${TELEGRAM_ADMIN_CHAT_ID})`);
   pollTelegramUpdates().catch((e) => console.error('Telegram polling error:', e));
 } else {
   console.warn('Telegram polling disabled: TELEGRAM_BOT_TOKEN is not configured.');

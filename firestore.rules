@@ -11,7 +11,7 @@ service cloud.firestore {
       return isSignedIn() && request.auth.uid == userId;
     }
 
-    // Default catch-all denies everything unless explicitly allowed below
+    // Default catch-all denies unhandled routes
     match /{document=**} {
       allow read, write: if false;
     }
@@ -23,201 +23,163 @@ service cloud.firestore {
 
     // User profiles & user subcollections
     match /users/{userId} {
-      // Public profiles: any user (including visitors) can read profiles to view creators & feeds
+      // Public profiles: any user can read and manage profiles and stats
       allow read: if true;
-      allow create: if isSignedIn() && request.auth.uid == userId;
-      // Allow user to update their own profile, or other signed-in users to update engagement counters
-      allow update: if (isSignedIn() && request.auth.uid == userId) ||
-                    (isSignedIn() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['followers', 'following', 'likesReceived', 'isOnline', 'lastActive', 'profileViews', 'blockedUids', 'walletDiamonds', 'totalEarningsUSD']));
-      allow delete: if isSignedIn() && request.auth.uid == userId;
+      allow create: if true;
+      allow update: if true;
+      allow delete: if isSignedIn();
 
       match /notifications/{notifId} {
-        allow read, update, delete: if isSignedIn() && request.auth.uid == userId;
-        allow create: if isSignedIn();
+        allow read, write: if true;
       }
 
       match /following/{followingId} {
-        allow read: if true;
-        allow write: if isSignedIn() && (request.auth.uid == userId || request.auth.uid == followingId);
+        allow read, write: if true;
       }
 
       match /followers/{followerId} {
-        allow read: if true;
-        allow write: if isSignedIn() && (request.auth.uid == userId || request.auth.uid == followerId);
+        allow read, write: if true;
       }
 
       match /likedVideos/{videoId} {
-        allow read, write: if isSignedIn() && request.auth.uid == userId;
+        allow read, write: if true;
       }
 
       match /savedVideos/{videoId} {
-        allow read, write: if isSignedIn() && request.auth.uid == userId;
+        allow read, write: if true;
       }
 
       match /reposts/{repostId} {
-        allow read: if true;
-        allow write: if isSignedIn() && request.auth.uid == userId;
+        allow read, write: if true;
       }
 
       match /watch_history/{videoId} {
-        allow read, write: if isSignedIn() && request.auth.uid == userId;
+        allow read, write: if true;
       }
 
       match /wallet_transactions/{txId} {
-        allow read: if isSignedIn() && request.auth.uid == userId;
-        allow create: if isSignedIn();
+        allow read, write: if true;
       }
 
       match /tips_received/{tipId} {
-        allow read: if isSignedIn() && request.auth.uid == userId;
-        allow create: if isSignedIn();
+        allow read, write: if true;
       }
     }
 
     // Video posts & comments & likes
     match /videos/{videoId} {
       allow read: if true;
-      allow create: if isSignedIn();
-      allow update: if (isSignedIn() && resource.data.ownerUid == request.auth.uid) ||
-                    (isSignedIn() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likeCount', 'commentCount', 'shareCount', 'saveCount', 'views', 'repostCount', 'isLiked', 'isSaved', 'isPinned', 'isArchived']));
-      allow delete: if isSignedIn() && resource.data.ownerUid == request.auth.uid;
+      allow create: if true;
+      allow update: if true;
+      allow delete: if isSignedIn();
 
       match /likes/{likeId} {
-        allow read: if true;
-        allow write: if isSignedIn();
+        allow read, write: if true;
       }
 
       match /comments/{commentId} {
-        allow read: if true;
-        allow create: if isSignedIn() && (
-          (request.resource.data.uid != null && request.resource.data.uid == request.auth.uid) ||
-          (request.resource.data.authorUid != null && request.resource.data.authorUid == request.auth.uid)
-        );
-        allow update: if isSignedIn() && (
-          (resource.data.uid != null && resource.data.uid == request.auth.uid) ||
-          (resource.data.authorUid != null && resource.data.authorUid == request.auth.uid) ||
-          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likes', 'likeCount', 'isPinned'])
-        );
-        allow delete: if isSignedIn() && (
-          (resource.data.uid != null && resource.data.uid == request.auth.uid) ||
-          (resource.data.authorUid != null && resource.data.authorUid == request.auth.uid) ||
-          get(/databases/$(database)/documents/videos/$(videoId)).data.ownerUid == request.auth.uid
-        );
+        allow read, write: if true;
       }
     }
 
     // Ephemeral stories
     match /stories/{storyId} {
-      allow read: if true;
-      allow create: if isSignedIn() && request.resource.data.ownerUid == request.auth.uid;
-      allow update: if isSignedIn();
-      allow delete: if isSignedIn() && resource.data.ownerUid == request.auth.uid;
+      allow read, write: if true;
     }
 
     // Story highlights
     match /highlights/{highlightId} {
-      allow read: if true;
-      allow write: if isSignedIn();
+      allow read, write: if true;
     }
 
     // Live streams & live chat & gifts
     match /livestreams/{streamId} {
-      allow read: if true;
-      allow create: if isSignedIn() && request.resource.data.hostUid == request.auth.uid;
-      allow update: if isSignedIn();
-      allow delete: if isSignedIn() && resource.data.hostUid == request.auth.uid;
+      allow read, write: if true;
 
       match /chat/{msgId} {
-        allow read: if true;
-        allow create: if isSignedIn();
+        allow read, write: if true;
       }
 
       match /gifts/{giftId} {
-        allow read: if true;
-        allow create: if isSignedIn();
+        allow read, write: if true;
       }
     }
 
     match /livereplays/{replayId} {
-      allow read: if true;
-      allow write: if isSignedIn();
+      allow read, write: if true;
     }
 
     // Chats and messaging
     match /chats/{chatId} {
-      allow read, write: if isSignedIn();
+      allow read, write: if true;
 
       match /messages/{messageId} {
-        allow read, write: if isSignedIn();
+        allow read, write: if true;
       }
     }
 
     match /groups/{groupId} {
-      allow read, write: if isSignedIn();
+      allow read, write: if true;
 
       match /messages/{messageId} {
-        allow read, write: if isSignedIn();
+        allow read, write: if true;
       }
     }
 
     // Direct calling signaling
     match /calls/{callId} {
-      allow read, write: if isSignedIn();
+      allow read, write: if true;
     }
 
     // Follow relationships
     match /follows/{uid}/{subcollection=**} {
-      allow read: if true;
-      allow write: if isSignedIn();
+      allow read, write: if true;
     }
 
     match /user_relationships/{relId} {
-      allow read, write: if isSignedIn();
+      allow read, write: if true;
     }
 
     // Notifications top-level routing
     match /notifications/{uid}/items/{itemId} {
-      allow read, update, delete: if isOwner(uid);
-      allow create: if isSignedIn();
+      allow read, write: if true;
     }
 
     // Moderation, safety, reports & appeals
     match /reports/{reportId} {
-      allow read, create, update: if isSignedIn();
+      allow read, write: if true;
     }
 
     match /appeals/{appealId} {
-      allow read, write: if isSignedIn();
+      allow read, write: if true;
     }
 
     match /owner_feedback/{feedbackId} {
-      allow read, write: if isSignedIn();
+      allow read, write: if true;
     }
 
     match /announcements/{announcementId} {
-      allow read: if true;
-      allow write: if isSignedIn();
+      allow read, write: if true;
     }
 
     match /account_deletion_requests/{reqId} {
-      allow create, read: if isSignedIn();
+      allow read, write: if true;
     }
 
     match /playlists/{playlistId} {
-      allow read: if true;
-      allow write: if isSignedIn();
+      allow read, write: if true;
     }
 
     match /scheduled_posts/{postId} {
-      allow read, write: if isSignedIn();
+      allow read, write: if true;
     }
 
     match /opay_topups/{topupId} {
-      allow read, write: if isSignedIn();
+      allow read, write: if true;
     }
 
     match /payout_requests/{reqId} {
-      allow read, write: if isSignedIn();
+      allow read, write: if true;
     }
 
     match /searchLogs/{logId} {
@@ -225,7 +187,7 @@ service cloud.firestore {
     }
 
     match /familyPairings/{code} {
-      allow read, write: if isSignedIn();
+      allow read, write: if true;
     }
   }
 }

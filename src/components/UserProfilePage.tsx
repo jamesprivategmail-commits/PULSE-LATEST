@@ -377,10 +377,10 @@ export const UserProfilePage: React.FC<UserProfilePageProps> = ({
       <div className="px-[15px]">
         <div className="flex items-start justify-between">
           <div className="relative -mt-12 z-10 rounded-full p-[3px] bg-gradient-to-br from-white via-neutral-500 to-white shadow-[0_0_0_5px_var(--bg),0_17px_50px_rgba(0,0,0,.55)]">
-            <img src={currentUser.photoURL} alt={currentUser.username} className="w-[106px] h-[106px] object-cover rounded-full border-2 border-[#050506]" />
+            <img src={currentUser.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(currentUser.username)}`} alt={currentUser.username} className="w-[106px] h-[106px] object-cover rounded-full border-2 border-[#050506]" />
             <span className="absolute right-[3px] bottom-[3px] w-[19px] h-[19px] rounded-full border-4 border-[#050506] bg-[var(--green)]" />
           </div>
-          <button onClick={() => setShowDrawer(true)} className="mt-3 w-10 h-10 rounded-[13px] grid place-items-center text-white hover:bg-white/[.055]" title="Profile menu"><Menu className="w-5 h-5" /></button>
+          <button onClick={() => setShowDrawer(true)} className="mt-3 w-10 h-10 rounded-[13px] grid place-items-center text-white hover:bg-white/[.055] cursor-pointer" title="Profile menu"><Menu className="w-5 h-5" /></button>
         </div>
         <div className="mt-3.5 flex items-center gap-1.5">
           <h1 className="text-[25px] font-black tracking-[-.9px]">{currentUser.username}</h1>
@@ -391,17 +391,18 @@ export const UserProfilePage: React.FC<UserProfilePageProps> = ({
         <div className="mt-2.5 flex flex-wrap gap-x-4 gap-y-2 text-[9px] text-[#74747b]">
           <span className="inline-flex items-center gap-1"><Globe className="w-3 h-3" /> Global creator</span>
           <span className="inline-flex items-center gap-1"><Clock className="w-3 h-3" /> Joined {currentUser.createdAt ? new Date(currentUser.createdAt).getFullYear() : '2026'}</span>
-          {currentUser.instagramLink && <a href={`https://instagram.com/${currentUser.instagramLink}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-pink-400"><Instagram className="w-3 h-3" /> Instagram</a>}
+          {currentUser.instagramLink && <a href={`https://instagram.com/${currentUser.instagramLink}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-pink-400 hover:underline"><Instagram className="w-3 h-3" /> Instagram</a>}
+          {currentUser.websiteLink && <a href={currentUser.websiteLink.startsWith('http') ? currentUser.websiteLink : `https://${currentUser.websiteLink}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-[#25f4ee] hover:underline"><Globe className="w-3 h-3" /> Website</a>}
         </div>
         <div className="grid grid-cols-3 mt-[18px] py-3.5 border-y border-white/[.075]">
-          <button onClick={() => onOpenFollowList('following', currentUser.uid)} className="text-center"><strong className="block text-[17px] font-extrabold">{formatCount(currentUser.following || 0)}</strong><span className="mt-0.5 block text-[9px] text-[#717178]">Following</span></button>
-          <button onClick={() => onOpenFollowList('followers', currentUser.uid)} className="text-center border-x border-white/[.075]"><strong className="block text-[17px] font-extrabold">{formatCount(currentUser.followers || 0)}</strong><span className="mt-0.5 block text-[9px] text-[#717178]">Followers</span></button>
-          <button onClick={() => setActiveTab('liked')} className="text-center"><strong className="block text-[17px] font-extrabold">{formatCount(currentUser.likesReceived || userVideos.reduce((acc, v) => acc + (v.likeCount || 0), 0))}</strong><span className="mt-0.5 block text-[9px] text-[#717178]">Likes</span></button>
+          <button onClick={() => onOpenFollowList('following', currentUser.uid)} className="text-center cursor-pointer hover:opacity-80 transition-opacity"><strong className="block text-[17px] font-extrabold">{formatCount(currentUser.following || 0)}</strong><span className="mt-0.5 block text-[9px] text-[#717178]">Following</span></button>
+          <button onClick={() => onOpenFollowList('followers', currentUser.uid)} className="text-center border-x border-white/[.075] cursor-pointer hover:opacity-80 transition-opacity"><strong className="block text-[17px] font-extrabold">{formatCount(currentUser.followers || 0)}</strong><span className="mt-0.5 block text-[9px] text-[#717178]">Followers</span></button>
+          <button onClick={() => setActiveTab('liked')} className="text-center cursor-pointer hover:opacity-80 transition-opacity"><strong className="block text-[17px] font-extrabold">{formatCount(currentUser.likesReceived || userVideos.reduce((acc, v) => acc + (v.likeCount || 0), 0))}</strong><span className="mt-0.5 block text-[9px] text-[#717178]">Likes</span></button>
         </div>
         <div className="flex gap-2 mt-[15px]">
-          <button onClick={() => setShowEditModal(true)} className="flex-1 h-11 rounded-[13px] bg-[#efeff0] text-[#050505] text-xs font-extrabold">Edit profile</button>
-          <button onClick={() => { if (navigator.share) navigator.share({ title: `${currentUser.username} on Pulse`, url: window.location.href }).catch(() => {}); else { navigator.clipboard?.writeText(window.location.href); onToast('Profile link copied'); } }} className="w-11 h-11 rounded-[13px] grid place-items-center bg-[#171719] border border-white/[.075]"><Share2 className="w-4 h-4" /></button>
-          <button onClick={() => setShowWalletModal(true)} className="w-11 h-11 rounded-[13px] grid place-items-center bg-[var(--yellow)] text-black"><Gem className="w-4 h-4" /></button>
+          <button onClick={() => setShowEditModal(true)} className="flex-1 h-11 rounded-[13px] bg-[#efeff0] text-[#050505] text-xs font-extrabold hover:bg-white transition-colors cursor-pointer">Edit profile</button>
+          <button onClick={() => { if (navigator.share) navigator.share({ title: `${currentUser.username} on Pulse`, url: window.location.href }).catch(() => {}); else { navigator.clipboard?.writeText(window.location.href); onToast('Profile link copied'); } }} className="w-11 h-11 rounded-[13px] grid place-items-center bg-[#171719] border border-white/[.075] hover:bg-neutral-800 transition-colors cursor-pointer" title="Share profile"><Share2 className="w-4 h-4" /></button>
+          <button onClick={() => setShowWalletModal(true)} className="w-11 h-11 rounded-[13px] grid place-items-center bg-[var(--yellow)] text-black hover:opacity-90 transition-opacity cursor-pointer shadow-md" title="Creator Wallet"><Gem className="w-4 h-4" /></button>
         </div>
       </div>
 
@@ -409,7 +410,7 @@ export const UserProfilePage: React.FC<UserProfilePageProps> = ({
         {([
           ['videos', 'Posts'], ['media', 'Media'], ['reposts', 'Reposts'], ['saved', 'Saved'], ['liked', 'Liked']
         ] as const).map(([tab, label]) => (
-          <button key={tab} onClick={() => setActiveTab(tab)} className={`relative text-[9px] font-extrabold ${activeTab === tab ? 'text-white' : 'text-[#626269]'}`}>
+          <button key={tab} onClick={() => setActiveTab(tab)} className={`relative text-[9px] font-extrabold cursor-pointer transition-colors ${activeTab === tab ? 'text-white' : 'text-[#626269] hover:text-white'}`}>
             {label}
             {activeTab === tab && <span className="absolute bottom-0 left-1/2 -translate-x-1/2 w-7 h-0.5 rounded-full bg-white" />}
           </button>

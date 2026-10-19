@@ -331,7 +331,7 @@ const VideoSlideComponent: React.FC<VideoSlideProps> = ({
     setLiked(newLiked);
     setLikeCount(prev => Math.max(0, prev + (newLiked ? 1 : -1)));
     try {
-      const persisted = await toggleVideoLike(video.id, currentUser);
+      const persisted = await toggleVideoLike(video.id, currentUser, newLiked);
       setLiked(persisted);
     } catch {
       // Keep optimistic state if network glitch, do not revert
