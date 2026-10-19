@@ -8,7 +8,8 @@ import {
   checkUserSavedVideo,
   checkIsFollowing,
   toggleFollowUser,
-  recordVideoView
+  recordVideoView,
+  isVideoLikedLocally
 } from '../services/pulseDb';
 import { formatCount } from '../utils/formatters';
 import {
@@ -53,7 +54,7 @@ export const PostCard: React.FC<PostCardProps> = ({
 }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const mediaContainerRef = useRef<HTMLDivElement>(null);
-  const [liked, setLiked] = useState(!!video.isLiked);
+  const [liked, setLiked] = useState(() => isVideoLikedLocally(video.id, currentUser?.uid) || !!video.isLiked);
   const [likeCount, setLikeCount] = useState(video.likeCount || 0);
   const [saved, setSaved] = useState(!!video.isSaved);
   const [reposted, setReposted] = useState(!!video.isReposted);
@@ -68,11 +69,32 @@ export const PostCard: React.FC<PostCardProps> = ({
     if (propIsFollowing !== undefined) setIsFollowing(propIsFollowing);
   }, [propIsFollowing]);
 
+  useEffect(() => {
+    setLikeCount(video.likeCount || 0);
+  }, [video.likeCount]);
+
+  useEffect(() => {
+    if (typeof video.isLiked === 'boolean') {
+      if (!video.isLiked && currentUser && isVideoLikedLocally(video.id, currentUser.uid)) {
+        return;
+      }
+      setLiked(video.isLiked);
+    }
+  }, [video.isLiked, video.id, currentUser?.uid]);
+
+  // Listen to global like changes to keep all instances of this post in sync
+  useEffect(() => {
+    const onLikeChanged = (e: any) => {
+      if (e.detail?.videoId === video.id) {
+        setLiked(!!e.detail.isLiked);
+      }
+    };
+    window.addEventListener('pulse:like-changed', onLikeChanged);
+    return () => window.removeEventListener('pulse:like-changed', onLikeChanged);
+  }, [video.id]);
+
   // Instagram/TikTok-style feed autoplay: play this card's video only while
-  // it's substantially in view, pause it once scrolled past. Previously
-  // there was no visibility tracking at all here — videos in the home feed
-  // never autoplayed and never paused on scroll, they just sat static with
-  // native controls until manually tapped.
+  // it's substantially in view, pause it once scrolled past.
   useEffect(() => {
     const el = mediaContainerRef.current;
     if (!el || isImage) return;
@@ -85,10 +107,6 @@ export const PostCard: React.FC<PostCardProps> = ({
         if (entry.isIntersecting) {
           const playPromise = vid.play();
           if (playPromise && typeof playPromise.catch === 'function') {
-            // Autoplay with sound can be blocked without a recent user
-            // gesture (this fires from scrolling, not a tap/click). Fall
-            // back to muted playback rather than leaving the video frozen
-            // on its poster frame with no feedback.
             playPromise.catch(() => {
               vid.muted = true;
               vid.play().catch(() => {});
@@ -107,7 +125,14 @@ export const PostCard: React.FC<PostCardProps> = ({
 
   useEffect(() => {
     if (!currentUser) return;
-    checkUserLikedVideo(video.id, currentUser.uid).then(setLiked);
+    if (isVideoLikedLocally(video.id, currentUser.uid)) {
+      setLiked(true);
+    }
+    checkUserLikedVideo(video.id, currentUser.uid).then(isL => {
+      if (isLikingRef.current) return;
+      if (!isL && isVideoLikedLocally(video.id, currentUser.uid)) return;
+      setLiked(isL);
+    });
     checkUserSavedVideo(video.id, currentUser.uid).then(setSaved);
     if (propIsFollowing === undefined && video.ownerUid && video.ownerUid !== currentUser.uid) {
       checkIsFollowing(currentUser.uid, video.ownerUid).then(setIsFollowing);
@@ -116,21 +141,20 @@ export const PostCard: React.FC<PostCardProps> = ({
 
   const handleLike = async () => {
     if (!currentUser) return onRequireAuth();
-    // Guard against overlapping calls (rapid re-taps): two concurrent
-    // toggleVideoLike calls can both read the "not liked" doc before either
-    // write commits, double-incrementing likeCount server-side.
     if (isLikingRef.current) return;
     isLikingRef.current = true;
     const next = !liked;
     setLiked(next);
     setLikeCount(c => Math.max(0, c + (next ? 1 : -1)));
     try {
-      const persisted = await toggleVideoLike(video.id, currentUser, next);
+      const persisted = await toggleVideoLike(video.id, currentUser, next, video);
       setLiked(persisted);
     } catch {
       // Retain optimistic like state
     } finally {
-      isLikingRef.current = false;
+      setTimeout(() => {
+        isLikingRef.current = false;
+      }, 500);
     }
   };
 

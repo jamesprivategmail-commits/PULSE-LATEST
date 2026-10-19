@@ -11,7 +11,8 @@ import {
   recordVideoView,
   recordWatchHistory,
   isPlatformOwner,
-  sendTipToCreator
+  sendTipToCreator,
+  isVideoLikedLocally
 } from '../services/pulseDb';
 import { db, doc, getDoc } from '../backend';
 import { formatCount } from '../utils/formatters';
@@ -161,7 +162,15 @@ const VideoSlideComponent: React.FC<VideoSlideProps> = ({
     setRepostCount(video.repostCount || 0);
 
     if (currentUser) {
-      checkUserLikedVideo(video.id, currentUser.uid).then(setLiked);
+      if (isVideoLikedLocally(video.id, currentUser.uid)) {
+        setLiked(true);
+      }
+      checkUserLikedVideo(video.id, currentUser.uid).then(isL => {
+        if (!isLikingRef.current) {
+          if (!isL && isVideoLikedLocally(video.id, currentUser.uid)) return;
+          setLiked(isL);
+        }
+      });
       checkUserSavedVideo(video.id, currentUser.uid).then(setSaved);
       
       // Check repost status
@@ -331,12 +340,14 @@ const VideoSlideComponent: React.FC<VideoSlideProps> = ({
     setLiked(newLiked);
     setLikeCount(prev => Math.max(0, prev + (newLiked ? 1 : -1)));
     try {
-      const persisted = await toggleVideoLike(video.id, currentUser, newLiked);
+      const persisted = await toggleVideoLike(video.id, currentUser, newLiked, video);
       setLiked(persisted);
     } catch {
       // Keep optimistic state if network glitch, do not revert
     } finally {
-      isLikingRef.current = false;
+      setTimeout(() => {
+        isLikingRef.current = false;
+      }, 500);
     }
   };
 

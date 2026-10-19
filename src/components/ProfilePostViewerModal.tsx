@@ -7,7 +7,8 @@ import {
   checkUserLikedVideo, 
   checkUserSavedVideo, 
   recordVideoView,
-  recordWatchHistory
+  recordWatchHistory,
+  isVideoLikedLocally
 } from '../services/pulseDb';
 import { formatCount } from '../utils/formatters';
 import { 
@@ -80,10 +81,16 @@ export const ProfilePostViewerModal: React.FC<ProfilePostViewerModalProps> = ({
     
     // Check like / save status for current video
     if (currentUser?.uid) {
-      checkUserLikedVideo(currentUser.uid, currentVideo.id).then((liked) => {
-        setLikedMap(prev => ({ ...prev, [currentVideo.id]: liked }));
+      if (isVideoLikedLocally(currentVideo.id, currentUser.uid)) {
+        setLikedMap(prev => ({ ...prev, [currentVideo.id]: true }));
+      }
+      checkUserLikedVideo(currentVideo.id, currentUser.uid).then((liked) => {
+        if (!likingRef.current[currentVideo.id]) {
+          if (!liked && isVideoLikedLocally(currentVideo.id, currentUser.uid)) return;
+          setLikedMap(prev => ({ ...prev, [currentVideo.id]: liked }));
+        }
       });
-      checkUserSavedVideo(currentUser.uid, currentVideo.id).then((saved) => {
+      checkUserSavedVideo(currentVideo.id, currentUser.uid).then((saved) => {
         setSavedMap(prev => ({ ...prev, [currentVideo.id]: saved }));
       });
     }
@@ -126,12 +133,9 @@ export const ProfilePostViewerModal: React.FC<ProfilePostViewerModalProps> = ({
       onRequireAuth();
       return;
     }
-    // Per-video guard: block overlapping toggles for the same video so two
-    // rapid taps can't both read the "not liked" doc before either write
-    // lands and double-increment likeCount on the server.
     if (likingRef.current[currentVideo.id]) return;
     likingRef.current[currentVideo.id] = true;
-    const isLiked = !!likedMap[currentVideo.id];
+    const isLiked = isVideoLikedLocally(currentVideo.id, currentUser.uid) || !!likedMap[currentVideo.id];
     const nextLiked = !isLiked;
     setLikedMap(prev => ({ ...prev, [currentVideo.id]: nextLiked }));
     setLikeCountMap(prev => ({
@@ -140,7 +144,7 @@ export const ProfilePostViewerModal: React.FC<ProfilePostViewerModalProps> = ({
     }));
 
     try {
-      await toggleVideoLike(currentVideo.id, currentUser);
+      await toggleVideoLike(currentVideo.id, currentUser, nextLiked, currentVideo);
     } catch (e) {
       // rollback on error
       setLikedMap(prev => ({ ...prev, [currentVideo.id]: isLiked }));
@@ -149,7 +153,9 @@ export const ProfilePostViewerModal: React.FC<ProfilePostViewerModalProps> = ({
         [currentVideo.id]: Math.max(0, (prev[currentVideo.id] || 0) + (nextLiked ? -1 : 1))
       }));
     } finally {
-      likingRef.current[currentVideo.id] = false;
+      setTimeout(() => {
+        likingRef.current[currentVideo.id] = false;
+      }, 500);
     }
   };
 

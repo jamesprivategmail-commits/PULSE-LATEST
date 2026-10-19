@@ -379,28 +379,204 @@ export function subscribeToVideos(callback: (videos: VideoPost[]) => void) {
   }
 }
 
+// Liked Videos Cache & Real-Time Sync
+const LIKED_VIDEOS_CACHE_PREFIX = 'pulse_liked_video_ids_';
+const LIKED_FULL_VIDEOS_CACHE_PREFIX = 'pulse_liked_full_videos_';
+
+export function getCachedLikedVideoIds(uid?: string): string[] {
+  if (!uid) return [];
+  try {
+    const raw = localStorage.getItem(LIKED_VIDEOS_CACHE_PREFIX + uid);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+export function cacheLikedVideoIds(uid: string, videoIds: string[]): void {
+  if (!uid) return;
+  try {
+    localStorage.setItem(LIKED_VIDEOS_CACHE_PREFIX + uid, JSON.stringify(Array.from(new Set(videoIds))));
+  } catch (e) {
+    console.warn('Could not cache liked video ids:', e);
+  }
+}
+
+export function clearCachedLikedVideoIds(uid?: string): void {
+  try {
+    if (uid) {
+      localStorage.removeItem(LIKED_VIDEOS_CACHE_PREFIX + uid);
+      return;
+    }
+    const keysToRemove: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && key.startsWith(LIKED_VIDEOS_CACHE_PREFIX)) keysToRemove.push(key);
+    }
+    keysToRemove.forEach(k => localStorage.removeItem(k));
+  } catch (e) {
+    console.warn('Could not clear cached liked video ids:', e);
+  }
+}
+
+export function getCachedLikedFullVideos(uid?: string): VideoPost[] {
+  if (!uid) return [];
+  try {
+    const raw = localStorage.getItem(LIKED_FULL_VIDEOS_CACHE_PREFIX + uid);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+export function cacheLikedFullVideos(uid: string, videos: VideoPost[]): void {
+  if (!uid) return;
+  try {
+    localStorage.setItem(LIKED_FULL_VIDEOS_CACHE_PREFIX + uid, JSON.stringify(videos));
+  } catch (e) {
+    console.warn('Could not cache liked full videos:', e);
+  }
+}
+
+export function clearCachedLikedFullVideos(uid?: string): void {
+  try {
+    if (uid) {
+      localStorage.removeItem(LIKED_FULL_VIDEOS_CACHE_PREFIX + uid);
+      return;
+    }
+    const keysToRemove: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && key.startsWith(LIKED_FULL_VIDEOS_CACHE_PREFIX)) keysToRemove.push(key);
+    }
+    keysToRemove.forEach(k => localStorage.removeItem(k));
+  } catch (e) {
+    console.warn('Could not clear cached liked full videos:', e);
+  }
+}
+
+export function isVideoLikedLocally(videoId: string, uid?: string): boolean {
+  if (!videoId || !uid) return false;
+  const list = getCachedLikedVideoIds(uid);
+  return list.includes(videoId);
+}
+
+export function subscribeToUserLikedVideos(uid: string, callback: (likedVideoIds: string[]) => void) {
+  if (!uid) {
+    callback([]);
+    return () => {};
+  }
+
+  // Instant emit of cached state
+  const cached = getCachedLikedVideoIds(uid);
+  callback(cached);
+
+  let active = true;
+
+  // Real-time Firestore onSnapshot listener
+  let fsUnsub = () => {};
+  try {
+    const userLikesRef = collection(db, 'users', uid, 'likedVideos');
+    fsUnsub = onSnapshot(userLikesRef, (snap) => {
+      if (!active) return;
+      const ids: string[] = [];
+      snap.forEach(d => {
+        const vid = (d.data() as any)?.videoId || d.id;
+        if (vid) ids.push(vid);
+      });
+      cacheLikedVideoIds(uid, ids);
+      callback(ids);
+    }, (err) => {
+      console.warn('Firestore liked videos subscription warning:', err);
+      // Fallback: poll server API
+      fetch(`/api/user/liked-videos?uid=${encodeURIComponent(uid)}`)
+        .then(r => r.json())
+        .then(data => {
+          if (active && Array.isArray(data?.videos)) {
+            const serverIds = data.videos.map((v: any) => v.id);
+            cacheLikedVideoIds(uid, serverIds);
+            callback(serverIds);
+          }
+        })
+        .catch(() => {});
+    });
+  } catch (e) {
+    // handled by server fallback
+  }
+
+  return () => {
+    active = false;
+    fsUnsub();
+  };
+}
+
 // Toggle Like
-export async function toggleVideoLike(videoId: string, user: UserProfile, explicitTargetState?: boolean): Promise<boolean> {
+export async function toggleVideoLike(
+  videoId: string,
+  user: UserProfile,
+  explicitTargetState?: boolean,
+  fullVideo?: VideoPost
+): Promise<boolean> {
   if (!videoId || !user?.uid) return false;
 
-  let isNowLiked = typeof explicitTargetState === 'boolean' ? explicitTargetState : true;
+  // 1. Determine next state based on local cache or explicit flag
+  const currentCached = getCachedLikedVideoIds(user.uid);
+  const wasLiked = currentCached.includes(videoId);
+  const isNowLiked = typeof explicitTargetState === 'boolean' ? explicitTargetState : !wasLiked;
 
-  // 1. Authoritative server toggle to guarantee persistence regardless of Firestore rule permissions
+  // 2. Immediately update local storage ID cache to guarantee instant optimistic state and NO flickers
+  const updatedList = isNowLiked
+    ? Array.from(new Set([...currentCached, videoId]))
+    : currentCached.filter(id => id !== videoId);
+  cacheLikedVideoIds(user.uid, updatedList);
+
+  // Also maintain full video cache for instantaneous profile Liked tab display
+  const currentFullCache = getCachedLikedFullVideos(user.uid);
+  if (isNowLiked) {
+    if (fullVideo && (fullVideo.src || fullVideo.mediaType || fullVideo.caption)) {
+      const updatedFull = [
+        { ...fullVideo, id: videoId, isLiked: true },
+        ...currentFullCache.filter(v => v.id !== videoId)
+      ];
+      cacheLikedFullVideos(user.uid, updatedFull);
+    }
+  } else {
+    cacheLikedFullVideos(user.uid, currentFullCache.filter(v => v.id !== videoId));
+  }
+
+  // Broadcast event across UI tabs and components
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('pulse:like-changed', {
+      detail: { videoId, isLiked: isNowLiked, uid: user.uid, video: fullVideo }
+    }));
+  }
+
+  // 3. Authoritative server toggle to guarantee persistence across sessions & devices
   try {
     const res = await fetch('/api/video/like', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ videoId, user, desiredState: explicitTargetState })
+      body: JSON.stringify({
+        videoId,
+        user,
+        desiredState: isNowLiked,
+        videoData: fullVideo
+      })
     });
     const data = await res.json();
-    if (data?.success) {
-      isNowLiked = !!data.isLiked;
+    if (data?.success && typeof data.isLiked === 'boolean') {
+      if (data.isLiked !== isNowLiked) {
+        const synced = data.isLiked
+          ? Array.from(new Set([...getCachedLikedVideoIds(user.uid), videoId]))
+          : getCachedLikedVideoIds(user.uid).filter(id => id !== videoId);
+        cacheLikedVideoIds(user.uid, synced);
+      }
     }
   } catch (err) {
     console.warn('Server toggle like fallback:', err);
   }
 
-  // 2. Direct Firestore update matching isNowLiked without inverse deletion race
+  // 4. Direct Firestore update matching isNowLiked
   try {
     const likeRef = doc(db, 'videos', videoId, 'likes', user.uid);
     const userLikedRef = doc(db, 'users', user.uid, 'likedVideos', videoId);
@@ -412,11 +588,11 @@ export async function toggleVideoLike(videoId: string, user: UserProfile, explic
         who: user.handle || user.username || 'Creator',
         avatar: user.photoURL || '',
         createdAt: Date.now()
-      });
+      }).catch(() => {});
       await setDoc(userLikedRef, {
         videoId,
         likedAt: Date.now()
-      });
+      }).catch(() => {});
       await updateDoc(videoRef, { likeCount: increment(1) }).catch(() => {});
 
       // Create notification for video owner if not self
@@ -453,21 +629,36 @@ export async function toggleVideoLike(videoId: string, user: UserProfile, explic
 // Check like status
 export async function checkUserLikedVideo(videoId: string, uid: string): Promise<boolean> {
   if (!uid || !videoId) return false;
-  try {
-    const likeRef = doc(db, 'videos', videoId, 'likes', uid);
-    const snap = await getDoc(likeRef);
-    if (snap.exists()) return true;
-  } catch (err) {
-    // Fall back to server
-  }
 
+  // 1. Instant check from local cache
+  const cachedList = getCachedLikedVideoIds(uid);
+  if (cachedList.includes(videoId)) return true;
+
+  // 2. Direct Firestore check
+  try {
+    const userLikedRef = doc(db, 'users', uid, 'likedVideos', videoId);
+    const likeRef = doc(db, 'videos', videoId, 'likes', uid);
+    const [uSnap, lSnap] = await Promise.all([
+      getDoc(userLikedRef).catch(() => null),
+      getDoc(likeRef).catch(() => null)
+    ]);
+    if (uSnap?.exists() || lSnap?.exists()) {
+      cacheLikedVideoIds(uid, Array.from(new Set([...cachedList, videoId])));
+      return true;
+    }
+  } catch (err) {}
+
+  // 3. Server check
   try {
     const res = await fetch(`/api/video/check-like?videoId=${encodeURIComponent(videoId)}&uid=${encodeURIComponent(uid)}`);
     const data = await res.json();
-    return !!data?.isLiked;
-  } catch {
-    return false;
-  }
+    if (data?.isLiked) {
+      cacheLikedVideoIds(uid, Array.from(new Set([...cachedList, videoId])));
+      return true;
+    }
+  } catch {}
+
+  return false;
 }
 
 // Toggle Save / Bookmark
@@ -498,10 +689,23 @@ export async function checkUserSavedVideo(videoId: string, uid: string): Promise
 // Get User Liked Videos
 export async function getUserLikedVideos(uid: string): Promise<VideoPost[]> {
   if (!uid) return [];
-  const videos: VideoPost[] = [];
+  const videosMap = new Map<string, VideoPost>();
   const seenIds = new Set<string>();
 
-  // 1. Try Firestore user's likedVideos collection
+  // 1. Instant load from local full video cache (zero flicker & immediate profile render)
+  const cachedFull = getCachedLikedFullVideos(uid);
+  cachedFull.forEach(v => {
+    if (v?.id && (v.src || v.mediaType || v.caption)) {
+      videosMap.set(v.id, { ...v, isLiked: true });
+      seenIds.add(v.id);
+    }
+  });
+
+  // Also include any IDs from the ID cache
+  const cachedIds = getCachedLikedVideoIds(uid);
+  cachedIds.forEach(id => seenIds.add(id));
+
+  // 2. Query Firestore user's likedVideos collection
   try {
     const userLikesRef = collection(db, 'users', uid, 'likedVideos');
     let snap;
@@ -513,38 +717,48 @@ export async function getUserLikedVideos(uid: string): Promise<VideoPost[]> {
 
     if (snap && !snap.empty) {
       for (const d of snap.docs) {
-        const vidId = d.id;
-        if (!seenIds.has(vidId)) {
-          seenIds.add(vidId);
-          try {
-            const vSnap = await getDoc(doc(db, 'videos', vidId));
-            if (vSnap.exists()) {
-              videos.push({ id: vSnap.id, ...vSnap.data() } as VideoPost);
-            }
-          } catch {}
-        }
+        const vidId = (d.data() as any)?.videoId || d.id;
+        if (vidId) seenIds.add(vidId);
       }
     }
   } catch (e) {
     console.warn('Notice fetching user liked videos from Firestore:', e);
   }
 
-  // 2. Also fetch and merge from serverDb canonical cache
+  // 3. Fetch from serverDb canonical cache
   try {
     const res = await fetch(`/api/user/liked-videos?uid=${encodeURIComponent(uid)}`);
     const data = await res.json();
     if (Array.isArray(data?.videos)) {
       for (const v of data.videos) {
-        if (!seenIds.has(v.id)) {
+        if (v?.id && (v.src || v.mediaType || v.caption)) {
+          videosMap.set(v.id, { ...v, isLiked: true });
           seenIds.add(v.id);
-          videos.push(v);
         }
       }
     }
   } catch {}
 
-  videos.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
-  return videos;
+  // 4. For any discovered video IDs still missing full metadata, fetch from Firestore
+  for (const vidId of Array.from(seenIds)) {
+    if (!videosMap.has(vidId) || !videosMap.get(vidId)?.src) {
+      try {
+        const vSnap = await getDoc(doc(db, 'videos', vidId));
+        if (vSnap.exists()) {
+          videosMap.set(vidId, { id: vSnap.id, ...vSnap.data(), isLiked: true } as VideoPost);
+        }
+      } catch (e) {}
+    }
+  }
+
+  const result = Array.from(videosMap.values()).filter(v => !!(v.src || v.mediaType || v.caption));
+  result.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+
+  // Keep both local caches synchronized
+  cacheLikedVideoIds(uid, result.map(v => v.id));
+  cacheLikedFullVideos(uid, result);
+
+  return result;
 }
 
 // Get User Saved Videos

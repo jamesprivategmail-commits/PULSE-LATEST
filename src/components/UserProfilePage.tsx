@@ -185,6 +185,25 @@ export const UserProfilePage: React.FC<UserProfilePageProps> = ({
   }, [activeTab, currentUser.uid]);
 
   useEffect(() => {
+    const handleLikeChanged = (e: any) => {
+      if (!currentUser?.uid) return;
+      if (e.detail?.uid === currentUser.uid) {
+        if (e.detail.isLiked && e.detail.video) {
+          setLikedVideos(prev => {
+            if (prev.some(v => v.id === e.detail.videoId)) return prev;
+            return [{ ...e.detail.video, id: e.detail.videoId, isLiked: true }, ...prev];
+          });
+        } else if (!e.detail.isLiked) {
+          setLikedVideos(prev => prev.filter(v => v.id !== e.detail.videoId));
+        }
+        getUserLikedVideos(currentUser.uid).then(setLikedVideos);
+      }
+    };
+    window.addEventListener('pulse:like-changed', handleLikeChanged);
+    return () => window.removeEventListener('pulse:like-changed', handleLikeChanged);
+  }, [currentUser?.uid]);
+
+  useEffect(() => {
     if (showEditModal) {
       setEditUsername(currentUser.username);
       setEditHandle(currentUser.handle || '');
@@ -554,10 +573,10 @@ export const UserProfilePage: React.FC<UserProfilePageProps> = ({
             </div>
           ) : (
             <div className="grid grid-cols-3 gap-0.5">
-              {savedVideos.map((video) => (
+              {savedVideos.map((video, idx) => (
                 <div
                   key={video.id}
-                  onClick={() => onSelectVideo(video)}
+                  onClick={() => setViewerVideoIndex(idx)}
                   className="aspect-[3/4] bg-neutral-900 relative cursor-pointer group overflow-hidden"
                 >
                   <GridThumb video={video} className="group-hover:scale-105 transition-transform" />
@@ -580,10 +599,10 @@ export const UserProfilePage: React.FC<UserProfilePageProps> = ({
             </div>
           ) : (
             <div className="grid grid-cols-3 gap-0.5">
-              {likedVideos.map((video) => (
+              {likedVideos.map((video, idx) => (
                 <div
                   key={video.id}
-                  onClick={() => onSelectVideo(video)}
+                  onClick={() => setViewerVideoIndex(idx)}
                   className="aspect-[3/4] bg-neutral-900 relative cursor-pointer group overflow-hidden"
                 >
                   <GridThumb video={video} className="group-hover:scale-105 transition-transform" />
@@ -953,7 +972,13 @@ export const UserProfilePage: React.FC<UserProfilePageProps> = ({
         <ProfilePostViewerModal
           isOpen={viewerVideoIndex !== null}
           creatorProfile={currentUser}
-          videos={activeVideos}
+          videos={
+            activeTab === 'liked' ? likedVideos :
+            activeTab === 'saved' ? savedVideos :
+            activeTab === 'media' ? mediaVideos :
+            activeTab === 'reposts' ? repostedVideos :
+            activeVideos
+          }
           initialIndex={viewerVideoIndex}
           currentUser={currentUser}
           onClose={() => setViewerVideoIndex(null)}

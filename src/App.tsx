@@ -22,6 +22,9 @@ import {
   getCachedFollowingUids,
   cacheFollowingUids,
   clearCachedFollowingUids,
+  getCachedLikedVideoIds,
+  clearCachedLikedVideoIds,
+  subscribeToUserLikedVideos,
   subscribeToIncomingCalls,
   initiateDirectCall,
   answerDirectCall,
@@ -444,6 +447,7 @@ export default function App() {
 
     let unsubscribeUser = () => {};
     let unsubscribeFollowing = () => {};
+    let unsubscribeLiked = () => {};
 
     // Tracks whether the auth SDK has resolved at least once, without being
     // a piece of React state — this effect must register onAuthStateChanged
@@ -456,6 +460,7 @@ export default function App() {
     const unsubscribeAuth = onAuthStateChanged(auth, async (fbUser) => {
       unsubscribeUser();
       unsubscribeFollowing();
+      unsubscribeLiked();
 
       if (fbUser) {
         try {
@@ -469,6 +474,7 @@ export default function App() {
           unsubscribeFollowing = subscribeToUserFollowing(fbUser.uid, (fList) => {
             setFollowingUids(fList);
           });
+          unsubscribeLiked = subscribeToUserLikedVideos(fbUser.uid, () => {});
         } catch (err) {
           console.warn('Notice while setting user profile:', err);
         }
@@ -479,6 +485,7 @@ export default function App() {
           setCurrentUser(null);
           setFollowingUids([]);
           clearCachedFollowingUids();
+          clearCachedLikedVideoIds();
         }
       }
       hasResolvedOnce = true;
@@ -490,6 +497,7 @@ export default function App() {
       unsubscribeAuth();
       unsubscribeUser();
       unsubscribeFollowing();
+      unsubscribeLiked();
     };
   }, []);
 

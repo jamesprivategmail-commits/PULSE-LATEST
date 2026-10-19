@@ -386,14 +386,30 @@ app.get('/api/profile/get', (req, res) => {
 
 app.post('/api/video/like', async (req, res) => {
   try {
-    const { videoId, user, desiredState } = req.body;
+    const { videoId, user, desiredState, videoData: incomingVideo } = req.body;
     if (!videoId || !user?.uid) {
       return res.status(400).json({ error: 'Missing videoId or user info' });
     }
 
     const likePath = ['videos', videoId, 'likes', user.uid];
-    const existingLike = !!readDocument(likePath);
-    const videoData = readDocument(['videos', videoId]) || {};
+    const userLikedPath = ['users', user.uid, 'likedVideos', videoId];
+    const existingLike = !!readDocument(likePath) || !!readDocument(userLikedPath);
+    let videoData = readDocument(['videos', videoId]) || {};
+
+    // Merge incoming video data to guarantee complete media and post metadata
+    if (incomingVideo && (incomingVideo.src || incomingVideo.mediaType || incomingVideo.caption)) {
+      videoData = { ...videoData, ...incomingVideo, id: videoId };
+      await writeDocument(['videos', videoId], videoData, 'set');
+    } else if ((!videoData || !videoData.src) && db) {
+      // If serverDb videoData is empty or missing media fields, fetch full post from Firestore
+      try {
+        const vSnap = await getDoc(doc(db, 'videos', videoId));
+        if (vSnap.exists()) {
+          videoData = { ...vSnap.data(), id: videoId };
+          await writeDocument(['videos', videoId], videoData, 'set');
+        }
+      } catch (e) {}
+    }
     const ownerUid = videoData.ownerUid || '';
 
     // If caller specified an explicit desired state (true = like, false = unlike), adhere to it
@@ -403,9 +419,10 @@ app.post('/api/video/like', async (req, res) => {
     if (!shouldLike) {
       // Unlike
       await writeDocument(likePath, {}, 'delete');
-      await writeDocument(['users', user.uid, 'likedVideos', videoId], {}, 'delete');
+      await writeDocument(userLikedPath, {}, 'delete');
       newLikeCount = Math.max(0, newLikeCount - (existingLike ? 1 : 0));
-      await writeDocument(['videos', videoId], { likeCount: newLikeCount }, 'update');
+      const updatedPost = { ...videoData, id: videoId, likeCount: newLikeCount };
+      await writeDocument(['videos', videoId], updatedPost, 'set');
 
       if (ownerUid) {
         const ownerDoc = readDocument(['users', ownerUid]) || {};
@@ -420,12 +437,15 @@ app.post('/api/video/like', async (req, res) => {
         avatar: user.photoURL || '',
         createdAt: Date.now()
       }, 'set');
-      await writeDocument(['users', user.uid, 'likedVideos', videoId], {
-        videoId,
-        likedAt: Date.now()
-      }, 'set');
       newLikeCount = newLikeCount + (existingLike ? 0 : 1);
-      await writeDocument(['videos', videoId], { likeCount: newLikeCount }, 'update');
+      const updatedPost = { ...videoData, id: videoId, likeCount: newLikeCount };
+      await writeDocument(['videos', videoId], updatedPost, 'set');
+
+      await writeDocument(userLikedPath, {
+        videoId,
+        likedAt: Date.now(),
+        video: updatedPost
+      }, 'set');
 
       if (ownerUid) {
         const ownerDoc = readDocument(['users', ownerUid]) || {};
@@ -441,18 +461,23 @@ app.post('/api/video/like', async (req, res) => {
         const fUserLikedRef = doc(db, 'users', user.uid, 'likedVideos', videoId);
         const fVidRef = doc(db, 'videos', videoId);
         if (shouldLike) {
-          await setDoc(fLikeRef, { uid: user.uid, who: user.handle, createdAt: Date.now() });
-          await setDoc(fUserLikedRef, { videoId, likedAt: Date.now() });
-          await updateDoc(fVidRef, { likeCount: increment(existingLike ? 0 : 1) });
+          await setDoc(fLikeRef, {
+            uid: user.uid,
+            who: user.handle || user.username || 'Creator',
+            avatar: user.photoURL || '',
+            createdAt: Date.now()
+          }).catch(() => {});
+          await setDoc(fUserLikedRef, { videoId, likedAt: Date.now() }).catch(() => {});
+          await updateDoc(fVidRef, { likeCount: increment(existingLike ? 0 : 1) }).catch(() => {});
           if (ownerUid) {
-            await updateDoc(doc(db, 'users', ownerUid), { likesReceived: increment(existingLike ? 0 : 1) });
+            await updateDoc(doc(db, 'users', ownerUid), { likesReceived: increment(existingLike ? 0 : 1) }).catch(() => {});
           }
         } else {
-          await deleteDoc(fLikeRef);
-          await deleteDoc(fUserLikedRef);
-          await updateDoc(fVidRef, { likeCount: increment(existingLike ? -1 : 0) });
+          await deleteDoc(fLikeRef).catch(() => {});
+          await deleteDoc(fUserLikedRef).catch(() => {});
+          await updateDoc(fVidRef, { likeCount: increment(existingLike ? -1 : 0) }).catch(() => {});
           if (ownerUid) {
-            await updateDoc(doc(db, 'users', ownerUid), { likesReceived: increment(existingLike ? -1 : 0) });
+            await updateDoc(doc(db, 'users', ownerUid), { likesReceived: increment(existingLike ? -1 : 0) }).catch(() => {});
           }
         }
       } catch (e) {
@@ -467,13 +492,28 @@ app.post('/api/video/like', async (req, res) => {
   }
 });
 
-app.get('/api/video/check-like', (req, res) => {
+app.get('/api/video/check-like', async (req, res) => {
   try {
     const videoId = String(req.query.videoId || '');
     const uid = String(req.query.uid || '');
     if (!videoId || !uid) return res.json({ isLiked: false });
     const likeDoc = readDocument(['videos', videoId, 'likes', uid]);
-    res.json({ isLiked: !!likeDoc });
+    const userLikedDoc = readDocument(['users', uid, 'likedVideos', videoId]);
+    if (likeDoc || userLikedDoc) return res.json({ isLiked: true });
+
+    if (db) {
+      try {
+        const [snap1, snap2] = await Promise.all([
+          getDoc(doc(db, 'videos', videoId, 'likes', uid)),
+          getDoc(doc(db, 'users', uid, 'likedVideos', videoId))
+        ]);
+        if (snap1.exists() || snap2.exists()) {
+          return res.json({ isLiked: true });
+        }
+      } catch (e) {}
+    }
+
+    res.json({ isLiked: false });
   } catch {
     res.json({ isLiked: false });
   }
@@ -484,17 +524,38 @@ app.get('/api/user/liked-videos', async (req, res) => {
     const uid = String(req.query.uid || '');
     if (!uid) return res.json({ videos: [] });
     const likedRows = listDocuments(['users', uid, 'likedVideos']);
-    const videoIds = likedRows.map((r: any) => r.id);
+    const videoIds = new Set<string>(likedRows.map((r: any) => r.id));
+
+    // Also collect from Firestore users/{uid}/likedVideos if db is available
+    if (db) {
+      try {
+        const snap = await getDocs(collection(db, 'users', uid, 'likedVideos'));
+        snap.forEach(d => {
+          videoIds.add(d.id);
+          const data = d.data();
+          if (data?.videoId) videoIds.add(data.videoId);
+        });
+      } catch (e) {}
+    }
+
     const videos: any[] = [];
-    for (const vid of videoIds) {
-      let v = readDocument(['videos', vid]);
-      if (!v && db) {
+    for (const vid of Array.from(videoIds)) {
+      const likedEntry = likedRows.find((r: any) => r.id === vid);
+      let v = likedEntry?.data?.video || readDocument(['videos', vid]);
+
+      // If serverDb has no full record or is missing src, fetch from Firestore
+      if ((!v || !v.src) && db) {
         try {
           const vSnap = await getDoc(doc(db, 'videos', vid));
-          if (vSnap.exists()) v = vSnap.data();
+          if (vSnap.exists()) {
+            v = { ...vSnap.data(), id: vid };
+            await writeDocument(['videos', vid], v, 'set');
+          }
         } catch (e) {}
       }
-      if (v) videos.push({ id: vid, ...v });
+      if (v && (v.src || v.mediaType || v.caption)) {
+        videos.push({ id: vid, ...v, isLiked: true });
+      }
     }
     videos.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
     res.json({ videos });
